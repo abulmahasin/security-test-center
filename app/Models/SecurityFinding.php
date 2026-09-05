@@ -10,6 +10,8 @@ class SecurityFinding extends Model
     protected $fillable = [
         'security_session_id',
         'module',
+        'fingerprint',
+        'change_type',
         'severity',
         'title',
         'description',
