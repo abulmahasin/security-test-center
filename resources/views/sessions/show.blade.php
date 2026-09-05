@@ -99,11 +99,25 @@
                 <span class="severity {{ $finding->severity }}">{{ strtoupper($finding->severity) }}</span>
                 <span class="pill">{{ str_replace('_', ' ', $finding->module) }}</span>
                 <span class="change {{ $finding->change_type }}">{{ strtoupper($finding->change_type) }}</span>
+                <span class="pill">{{ str_replace('_', ' ', strtoupper($finding->status)) }}</span>
             </div>
             <h3>{{ $finding->title }}</h3>
             <p>{{ $finding->description }}</p>
             @if($finding->evidence)<div class="evidence"><strong>Evidence</strong><code>{{ $finding->evidence }}</code></div>@endif
             <div class="remediation"><strong>Recommended Remediation</strong><p>{{ $finding->remediation }}</p></div>
+            <form method="POST" action="{{ route('findings.status', $finding) }}" class="finding-governance">
+                @csrf
+                @method('PATCH')
+                <label>
+                    <span>Risk Governance</span>
+                    <select name="status">
+                        @foreach(['open' => 'Open', 'acknowledged' => 'Acknowledged', 'accepted_risk' => 'Accepted Risk', 'resolved' => 'Resolved', 'false_positive' => 'False Positive'] as $value => $label)
+                            <option value="{{ $value }}" @selected($finding->status === $value)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                </label>
+                <button type="submit" class="btn btn-ghost">Update Status</button>
+            </form>
         </article>
         @empty<div class="empty">Tidak ada finding.</div>@endforelse
     </div>
