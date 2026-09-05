@@ -4,11 +4,14 @@ namespace App\Services\SecurityAudit;
 
 use App\Services\SecurityAudit\Scanners\CookieScanner;
 use App\Services\SecurityAudit\Scanners\CorsScanner;
+use App\Services\SecurityAudit\Scanners\DnsPostureScanner;
 use App\Services\SecurityAudit\Scanners\ExposureScanner;
 use App\Services\SecurityAudit\Scanners\HeadersScanner;
+use App\Services\SecurityAudit\Scanners\HttpMethodsScanner;
 use App\Services\SecurityAudit\Scanners\LatencyScanner;
 use App\Services\SecurityAudit\Scanners\LoadResilienceScanner;
 use App\Services\SecurityAudit\Scanners\RateLimitScanner;
+use App\Services\SecurityAudit\Scanners\SecurityTxtScanner;
 use App\Services\SecurityAudit\Scanners\TlsScanner;
 use InvalidArgumentException;
 
@@ -23,6 +26,9 @@ class SecurityAuditManager
         private readonly RateLimitScanner $rateLimit,
         private readonly LatencyScanner $latency,
         private readonly LoadResilienceScanner $loadResilience,
+        private readonly SecurityTxtScanner $securityTxt,
+        private readonly HttpMethodsScanner $httpMethods,
+        private readonly DnsPostureScanner $dnsPosture,
     ) {
     }
 
@@ -37,6 +43,9 @@ class SecurityAuditManager
             'rate_limit' => $this->rateLimit,
             'latency' => $this->latency,
             'load_resilience' => $this->loadResilience,
+            'security_txt' => $this->securityTxt,
+            'http_methods' => $this->httpMethods,
+            'dns_posture' => $this->dnsPosture,
             default => throw new InvalidArgumentException("Unknown security module: {$module}"),
         };
     }
