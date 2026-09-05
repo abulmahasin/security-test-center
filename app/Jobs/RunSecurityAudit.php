@@ -1,0 +1,114 @@
+<?php
+
+namespace App\Jobs;
+
+use App\Models\SecurityFinding;
+use App\Models\SecurityLog;
+use App\Models\SecuritySession;
+use App\Services\SecurityAudit\ScoreCalculator;
+use App\Services\SecurityAudit\SecurityAuditManager;
+use App\Services\SecurityAudit\TargetGuard;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Queue\Queueable;
+use Throwable;
+
+class RunSecurityAudit implements ShouldQueue
+{
+    use Queueable;
+
+    public int $timeout = 180;
+
+    public function __construct(public readonly int $securitySessionId)
+    {
+    }
+
+    public function handle(SecurityAuditManager $manager, ScoreCalculator $score, TargetGuard $guard): void
+    {
+        $session = SecuritySession::findOrFail($this->securitySessionId);
+
+        if (! $session->isVerified()) {
+            $session->update(['status' => 'failed', 'error_message' => 'Target verification is required.']);
+            return;
+        }
+
+        try {
+            $guard->assertAllowed($session->target_url);
+
+            $modules = array_values($session->selected_modules ?? []);
+            $total = max(1, count($modules));
+
+            $session->update([
+                'status' => 'running',
+                'started_at' => now(),
+                'progress' => 3,
+                'current_stage' => 'Initializing security engine',
+            ]);
+
+            $this->log($session, 'info', 'Audit started', ['modules' => $modules]);
+
+            foreach ($modules as $index => $module) {
+                $progress = min(92, 5 + (int) floor(($index / $total) * 87));
+
+                $session->update([
+                    'progress' => $progress,
+                    'current_stage' => "Running {$module}",
+                ]);
+
+                $this->log($session, 'info', "Running module: {$module}");
+
+                $results = $manager->scanner($module)->scan($session);
+
+                foreach ($results as $result) {
+                    SecurityFinding::create([
+                        'security_session_id' => $session->id,
+                        'module' => $module,
+                        'severity' => $result['severity'],
+                        'title' => $result['title'],
+                        'description' => $result['description'],
+                        'evidence' => $result['evidence'] ?? null,
+                        'remediation' => $result['remediation'],
+                        'status' => 'open',
+                    ]);
+                }
+
+                $this->log($session, 'info', "Module completed: {$module}", ['findings' => count($results)]);
+            }
+
+            $session->update(['progress' => 95, 'current_stage' => 'Calculating risk score']);
+
+            $finalScore = $score->calculate($session->findings()->get());
+
+            $session->update([
+                'status' => 'completed',
+                'progress' => 100,
+                'current_stage' => 'Completed',
+                'score' => $finalScore,
+                'completed_at' => now(),
+            ]);
+
+            $this->log($session, 'info', 'Audit completed', ['score' => $finalScore]);
+        } catch (Throwable $e) {
+            report($e);
+
+            $session->update([
+                'status' => 'failed',
+                'current_stage' => 'Failed',
+                'error_message' => mb_substr($e->getMessage(), 0, 1000),
+                'completed_at' => now(),
+            ]);
+
+            $this->log($session, 'error', 'Audit failed', ['message' => $e->getMessage()]);
+        }
+    }
+
+    private function log(SecuritySession $session, string $level, string $message, array $meta = []): void
+    {
+        SecurityLog::create([
+            'security_session_id' => $session->id,
+            'level' => $level,
+            'message' => $message,
+            'meta' => $meta ?: null,
+            'created_at' => now(),
+        ]);
+    }
+}
