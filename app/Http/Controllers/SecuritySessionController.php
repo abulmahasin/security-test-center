@@ -17,7 +17,8 @@ use Illuminate\View\View;
 class SecuritySessionController extends Controller
 {
     private const MODULES = [
-        'headers', 'tls', 'cookies', 'cors', 'exposure', 'rate_limit', 'latency', 'load_resilience',
+        'headers', 'tls', 'cookies', 'cors', 'exposure', 'rate_limit', 'latency', 'security_txt',
+        'http_methods', 'dns_posture', 'load_resilience',
     ];
 
     public function create(): View
@@ -31,6 +32,9 @@ class SecuritySessionController extends Controller
                 'exposure' => ['Information Exposure', 'Server banner, debug markers dan informasi sensitif.'],
                 'rate_limit' => ['Rate Limit Signals', 'Memeriksa header throttle pada endpoint sensitif secara low-volume.'],
                 'latency' => ['Latency Baseline', 'Baseline respons ringan untuk mendeteksi bottleneck awal.'],
+                'security_txt' => ['Security.txt', 'RFC 9116 disclosure policy dan security contact.'],
+                'http_methods' => ['HTTP Methods', 'Passive OPTIONS review tanpa mengeksekusi method berbahaya.'],
+                'dns_posture' => ['DNS Posture', 'A/AAAA/CNAME resolution baseline secara pasif.'],
                 'load_resilience' => ['DDoS Resilience Simulation', 'Controlled GET load dengan hard safety caps dan ownership verification.'],
             ],
         ]);
@@ -49,14 +53,11 @@ class SecuritySessionController extends Controller
             'load.rps' => ['nullable', 'integer', 'min:1'],
             'load.duration' => ['nullable', 'integer', 'min:1'],
             'rate_limit_path' => ['nullable', 'string', 'max:255'],
+            'schedule_frequency' => ['nullable', Rule::in(['none', 'daily', 'weekly', 'monthly'])],
         ]);
 
         $targetUrl = rtrim($data['target_url'], '/');
         $guard->assertAllowed($targetUrl);
-
-        $maxVus = config('security_test.load.max_vus');
-        $maxRps = config('security_test.load.max_rps');
-        $maxDuration = config('security_test.load.max_duration');
 
         $session = SecuritySession::create([
             'user_id' => Auth::id(),
@@ -69,12 +70,13 @@ class SecuritySessionController extends Controller
             'selected_modules' => array_values(array_unique($data['modules'])),
             'config' => [
                 'load' => [
-                    'vus' => min(max((int) ($data['load']['vus'] ?? 5), 1), $maxVus),
-                    'rps' => min(max((int) ($data['load']['rps'] ?? 5), 1), $maxRps),
-                    'duration' => min(max((int) ($data['load']['duration'] ?? 10), 1), $maxDuration),
+                    'vus' => min(max((int) ($data['load']['vus'] ?? 5), 1), config('security_test.load.max_vus')),
+                    'rps' => min(max((int) ($data['load']['rps'] ?? 5), 1), config('security_test.load.max_rps')),
+                    'duration' => min(max((int) ($data['load']['duration'] ?? 10), 1), config('security_test.load.max_duration')),
                 ],
                 'rate_limit_path' => '/'.ltrim((string) ($data['rate_limit_path'] ?? '/login'), '/'),
             ],
+            'schedule_frequency' => ($data['schedule_frequency'] ?? 'none') === 'none' ? null : $data['schedule_frequency'],
             'verification_token' => Str::random(48),
         ]);
 
@@ -83,7 +85,11 @@ class SecuritySessionController extends Controller
 
     public function show(int $session): View
     {
-        $session = $this->ownedSession($session)->load(['findings', 'logs' => fn ($query) => $query->limit(80)]);
+        $session = $this->ownedSession($session)->load([
+            'baseline',
+            'findings',
+            'logs' => fn ($query) => $query->limit(80),
+        ]);
 
         return view('sessions.show', compact('session'));
     }
@@ -93,7 +99,11 @@ class SecuritySessionController extends Controller
         $session = $this->ownedSession($session);
 
         if ($verification->verify($session)) {
-            return back()->with('success', 'Target berhasil diverifikasi. Audit sudah dapat dijalankan.');
+            if ($session->schedule_frequency && ! $session->next_run_at) {
+                $session->update(['next_run_at' => $this->nextSchedule($session->schedule_frequency)]);
+            }
+
+            return back()->with('success', 'Target berhasil diverifikasi. Audit dan continuous monitoring sudah dapat dijalankan.');
         }
 
         return back()->withErrors([
@@ -115,9 +125,16 @@ class SecuritySessionController extends Controller
             'progress' => 1,
             'current_stage' => 'Queued',
             'score' => null,
+            'grade' => null,
+            'compliance_score' => null,
+            'risk_delta' => null,
+            'new_findings_count' => 0,
+            'resolved_findings_count' => 0,
+            'baseline_session_id' => null,
             'started_at' => null,
             'completed_at' => null,
             'error_message' => null,
+            'metadata' => null,
         ]);
 
         RunSecurityAudit::dispatch($session->id);
@@ -134,6 +151,11 @@ class SecuritySessionController extends Controller
             'progress' => $session->progress,
             'stage' => $session->current_stage,
             'score' => $session->score,
+            'grade' => $session->grade,
+            'compliance_score' => $session->compliance_score,
+            'risk_delta' => $session->risk_delta,
+            'new_findings' => $session->new_findings_count,
+            'resolved_findings' => $session->resolved_findings_count,
             'error' => $session->error_message,
             'findings' => $session->findings()->count(),
             'logs' => $session->logs()->limit(25)->get(['level', 'message', 'created_at'])->reverse()->values(),
@@ -142,7 +164,7 @@ class SecuritySessionController extends Controller
 
     public function report(int $session): JsonResponse
     {
-        $session = $this->ownedSession($session)->load('findings');
+        $session = $this->ownedSession($session)->load(['findings', 'baseline']);
 
         return response()->json([
             'session' => [
@@ -152,6 +174,15 @@ class SecuritySessionController extends Controller
                 'environment' => $session->environment,
                 'status' => $session->status,
                 'score' => $session->score,
+                'grade' => $session->grade,
+                'compliance_score' => $session->compliance_score,
+                'risk_delta' => $session->risk_delta,
+                'new_findings' => $session->new_findings_count,
+                'resolved_findings' => $session->resolved_findings_count,
+                'baseline_session_id' => $session->baseline_session_id,
+                'baseline_score' => $session->baseline?->score,
+                'schedule_frequency' => $session->schedule_frequency,
+                'next_run_at' => $session->next_run_at,
                 'modules' => $session->selected_modules,
                 'started_at' => $session->started_at,
                 'completed_at' => $session->completed_at,
@@ -165,6 +196,8 @@ class SecuritySessionController extends Controller
             ],
             'findings' => $session->findings->map(fn ($finding) => [
                 'module' => $finding->module,
+                'fingerprint' => $finding->fingerprint,
+                'change_type' => $finding->change_type,
                 'severity' => $finding->severity,
                 'title' => $finding->title,
                 'description' => $finding->description,
@@ -177,8 +210,16 @@ class SecuritySessionController extends Controller
 
     private function ownedSession(int $id): SecuritySession
     {
-        return SecuritySession::query()
-            ->where('user_id', Auth::id())
-            ->findOrFail($id);
+        return SecuritySession::query()->where('user_id', Auth::id())->findOrFail($id);
+    }
+
+    private function nextSchedule(string $frequency)
+    {
+        return match ($frequency) {
+            'daily' => now()->addDay(),
+            'weekly' => now()->addWeek(),
+            'monthly' => now()->addMonth(),
+            default => null,
+        };
     }
 }
