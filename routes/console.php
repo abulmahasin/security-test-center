@@ -60,9 +60,12 @@ Artisan::command('security:dispatch-scheduled', function (): void {
             continue;
         }
 
+        $scheduledLabel = ' · Scheduled '.now()->format('Y-m-d H:i');
+        $safeBaseName = mb_substr($template->name, 0, max(1, 120 - mb_strlen($scheduledLabel)));
+
         $run = SecuritySession::create([
             'user_id' => $template->user_id,
-            'name' => $template->name.' · Scheduled '.now()->format('Y-m-d H:i'),
+            'name' => $safeBaseName.$scheduledLabel,
             'target_url' => $template->target_url,
             'environment' => $template->environment,
             'profile' => $template->profile,
@@ -89,6 +92,11 @@ Artisan::command('security:dispatch-scheduled', function (): void {
         $template->update([
             'last_scheduled_at' => now(),
             'next_run_at' => $nextRun,
+            'metadata' => array_merge($template->metadata ?? [], [
+                'last_schedule_error' => null,
+                'last_scheduled_session_id' => $run->id,
+                'last_scheduled_at' => now()->toIso8601String(),
+            ]),
         ]);
 
         RunSecurityAudit::dispatch($run->id);
