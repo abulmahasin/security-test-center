@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\SecurityFinding;
 use App\Models\SecurityLog;
 use App\Models\SecuritySession;
+use App\Services\SecurityAudit\PostureAnalyzer;
 use App\Services\SecurityAudit\ScoreCalculator;
 use App\Services\SecurityAudit\SecurityAuditManager;
 use App\Services\SecurityAudit\TargetGuard;
@@ -22,8 +23,12 @@ class RunSecurityAudit implements ShouldQueue
     {
     }
 
-    public function handle(SecurityAuditManager $manager, ScoreCalculator $score, TargetGuard $guard): void
-    {
+    public function handle(
+        SecurityAuditManager $manager,
+        ScoreCalculator $score,
+        PostureAnalyzer $posture,
+        TargetGuard $guard,
+    ): void {
         $session = SecuritySession::findOrFail($this->securitySessionId);
 
         if (! $session->isVerified()) {
@@ -47,7 +52,7 @@ class RunSecurityAudit implements ShouldQueue
             $this->log($session, 'info', 'Audit started', ['modules' => $modules]);
 
             foreach ($modules as $index => $module) {
-                $progress = min(92, 5 + (int) floor(($index / $total) * 87));
+                $progress = min(90, 5 + (int) floor(($index / $total) * 84));
 
                 $session->update([
                     'progress' => $progress,
@@ -55,7 +60,6 @@ class RunSecurityAudit implements ShouldQueue
                 ]);
 
                 $this->log($session, 'info', "Running module: {$module}");
-
                 $results = $manager->scanner($module)->scan($session);
 
                 foreach ($results as $result) {
@@ -74,19 +78,28 @@ class RunSecurityAudit implements ShouldQueue
                 $this->log($session, 'info', "Module completed: {$module}", ['findings' => count($results)]);
             }
 
-            $session->update(['progress' => 95, 'current_stage' => 'Calculating risk score']);
-
+            $session->update(['progress' => 93, 'current_stage' => 'Calculating risk score']);
             $finalScore = $score->calculate($session->findings()->get());
 
-            $session->update([
+            $session->update(['progress' => 96, 'current_stage' => 'Comparing security posture']);
+            $postureData = $posture->finalize($session->fresh(), $finalScore);
+
+            $session->update(array_merge($postureData, [
                 'status' => 'completed',
                 'progress' => 100,
                 'current_stage' => 'Completed',
                 'score' => $finalScore,
                 'completed_at' => now(),
-            ]);
+            ]));
 
-            $this->log($session, 'info', 'Audit completed', ['score' => $finalScore]);
+            $this->log($session, 'info', 'Audit completed', [
+                'score' => $finalScore,
+                'grade' => $postureData['grade'],
+                'compliance' => $postureData['compliance_score'],
+                'new_findings' => $postureData['new_findings_count'],
+                'resolved_findings' => $postureData['resolved_findings_count'],
+                'risk_delta' => $postureData['risk_delta'],
+            ]);
         } catch (Throwable $e) {
             report($e);
 
