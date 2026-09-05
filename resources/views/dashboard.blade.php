@@ -23,7 +23,7 @@
         <div class="trend-list">
             @forelse($trend as $point)
                 <div class="trend-row">
-                    <div class="trend-label"><strong>{{ $point['completed_at'] }}</strong><span>{{ Str::limit($point['name'], 30) }}</span></div>
+                    <div class="trend-label"><strong>{{ $point['completed_at'] }}</strong><span>{{ \Illuminate\Support\Str::limit($point['name'], 30) }}</span></div>
                     <div class="trend-bars">
                         <div class="trend-line"><span>Score</span><div><i style="width: {{ $point['score'] }}%"></i></div><strong>{{ $point['score'] }}</strong></div>
                         <div class="trend-line compliance"><span>Compliance</span><div><i style="width: {{ $point['compliance'] ?? 0 }}%"></i></div><strong>{{ $point['compliance'] ?? '—' }}</strong></div>
