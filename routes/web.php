@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\SecurityFindingController;
 use App\Http\Controllers\SecuritySessionController;
 use Illuminate\Support\Facades\Route;
 
@@ -22,4 +23,6 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/sessions/{session}/run', [SecuritySessionController::class, 'run'])->name('sessions.run');
     Route::get('/sessions/{session}/status', [SecuritySessionController::class, 'status'])->name('sessions.status');
     Route::get('/sessions/{session}/report.json', [SecuritySessionController::class, 'report'])->name('sessions.report');
+
+    Route::patch('/findings/{finding}/status', [SecurityFindingController::class, 'updateStatus'])->name('findings.status');
 });
