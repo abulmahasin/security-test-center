@@ -6,6 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'Security Test Center') — {{ config('app.name') }}</title>
     <link rel="stylesheet" href="{{ asset('css/app.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/posture.css') }}">
 </head>
 <body>
 <div class="shell">
@@ -13,12 +14,12 @@
         <aside class="sidebar">
             <a href="{{ route('dashboard') }}" class="brand">
                 <span class="brand-mark">ST</span>
-                <span><strong>Security Test</strong><small>Center</small></span>
+                <span><strong>Security Test</strong><small>Continuous Posture Center</small></span>
             </a>
 
             <nav>
-                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">Dashboard</a>
-                <a href="{{ route('sessions.create') }}" class="{{ request()->routeIs('sessions.create') ? 'active' : '' }}">New Security Test</a>
+                <a href="{{ route('dashboard') }}" class="{{ request()->routeIs('dashboard') ? 'active' : '' }}">Security Operations</a>
+                <a href="{{ route('sessions.create') }}" class="{{ request()->routeIs('sessions.create') ? 'active' : '' }}">New Assessment</a>
             </nav>
 
             <div class="sidebar-bottom">
@@ -38,10 +39,10 @@
         @auth
             <header class="topbar">
                 <div>
-                    <p class="eyebrow">Authorized Security Workspace</p>
+                    <p class="eyebrow">Authorized Continuous Security Workspace</p>
                     <h1>@yield('page-title', 'Security Test Center')</h1>
                 </div>
-                <a href="{{ route('sessions.create') }}" class="btn btn-primary">+ New Session</a>
+                <a href="{{ route('sessions.create') }}" class="btn btn-primary">+ New Assessment</a>
             </header>
         @endauth
 
