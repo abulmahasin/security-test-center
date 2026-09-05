@@ -22,7 +22,7 @@ class PostureAnalyzerTest extends TestCase
             'password' => Hash::make('a-very-strong-test-password'),
         ]);
 
-        $baseline = $this->session($user->id, 'completed', 78);
+        $baseline = $this->makeSecuritySession($user->id, 'completed', 78);
         SecurityFinding::create($this->finding($baseline->id, 'headers', 'Missing HSTS', 'high'));
         SecurityFinding::create($this->finding($baseline->id, 'cookies', 'Cookie policy weak', 'medium'));
 
@@ -30,7 +30,7 @@ class PostureAnalyzerTest extends TestCase
         $baselineData = $analyzer->finalize($baseline, 78);
         $baseline->update(array_merge($baselineData, ['score' => 78, 'completed_at' => now()->subMinute()]));
 
-        $current = $this->session($user->id, 'running', null);
+        $current = $this->makeSecuritySession($user->id, 'running', null);
         SecurityFinding::create($this->finding($current->id, 'headers', 'Missing HSTS', 'high'));
         SecurityFinding::create($this->finding($current->id, 'tls', 'Certificate expires soon', 'medium'));
 
@@ -45,7 +45,7 @@ class PostureAnalyzerTest extends TestCase
         $this->assertSame('new', $current->findings()->where('title', 'Certificate expires soon')->first()->change_type);
     }
 
-    private function session(int $userId, string $status, ?int $score): SecuritySession
+    private function makeSecuritySession(int $userId, string $status, ?int $score): SecuritySession
     {
         return SecuritySession::create([
             'user_id' => $userId,
