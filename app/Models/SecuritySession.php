@@ -13,6 +13,7 @@ class SecuritySession extends Model
 
     protected $fillable = [
         'user_id',
+        'baseline_session_id',
         'name',
         'target_url',
         'environment',
@@ -21,13 +22,22 @@ class SecuritySession extends Model
         'progress',
         'current_stage',
         'score',
+        'grade',
+        'compliance_score',
+        'risk_delta',
+        'new_findings_count',
+        'resolved_findings_count',
         'selected_modules',
         'config',
+        'schedule_frequency',
+        'next_run_at',
+        'last_scheduled_at',
         'verification_token',
         'verified_at',
         'started_at',
         'completed_at',
         'error_message',
+        'metadata',
     ];
 
     protected function casts(): array
@@ -35,10 +45,17 @@ class SecuritySession extends Model
         return [
             'selected_modules' => 'array',
             'config' => 'array',
+            'metadata' => 'array',
             'verified_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
+            'next_run_at' => 'datetime',
+            'last_scheduled_at' => 'datetime',
             'score' => 'integer',
+            'compliance_score' => 'integer',
+            'risk_delta' => 'integer',
+            'new_findings_count' => 'integer',
+            'resolved_findings_count' => 'integer',
             'progress' => 'integer',
         ];
     }
@@ -46,6 +63,11 @@ class SecuritySession extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function baseline(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'baseline_session_id');
     }
 
     public function findings(): HasMany
@@ -66,5 +88,10 @@ class SecuritySession extends Model
     public function canRun(): bool
     {
         return $this->isVerified() && ! in_array($this->status, ['queued', 'running'], true);
+    }
+
+    public function isScheduled(): bool
+    {
+        return filled($this->schedule_frequency) && $this->next_run_at !== null;
     }
 }
