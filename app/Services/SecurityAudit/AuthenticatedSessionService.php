@@ -46,7 +46,7 @@ class AuthenticatedSessionService
         $loginPage = $this->safeGet($client, $loginUrl);
         $payload = [
             $identity->username_field => $identity->username,
-            'password' => $identity->password(),
+            $identity->password_field ?: 'password' => $identity->password(),
         ];
 
         if ($token = $this->extractCsrfToken($loginPage->body())) {
@@ -127,6 +127,10 @@ class AuthenticatedSessionService
         }
 
         if (preg_match('/<input[^>]*value=["\']([^"\']+)["\'][^>]*name=["\']_token["\'][^>]*>/i', $sample, $match)) {
+            return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
+        }
+
+        if (preg_match('/<meta[^>]*name=["\']csrf-token["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i', $sample, $match)) {
             return html_entity_decode($match[1], ENT_QUOTES | ENT_HTML5);
         }
 
