@@ -19,7 +19,7 @@ class SecuritySessionController extends Controller
 {
     private const MODULES = [
         'headers', 'tls', 'cookies', 'cors', 'exposure', 'rate_limit', 'latency', 'security_txt',
-        'http_methods', 'dns_posture', 'sensitive_files', 'load_resilience',
+        'http_methods', 'dns_posture', 'sensitive_files', 'authenticated_access', 'load_resilience',
     ];
 
     public function create(): View
@@ -37,6 +37,7 @@ class SecuritySessionController extends Controller
                 'http_methods' => ['HTTP Methods', 'Passive OPTIONS review tanpa mengeksekusi method berbahaya.'],
                 'dns_posture' => ['DNS Posture', 'A/AAAA/CNAME resolution baseline secara pasif.'],
                 'sensitive_files' => ['Sensitive File Exposure', 'Memeriksa .env, .git, log, database, backup, credential file, dan phpinfo tanpa menyimpan isi secret.'],
+                'authenticated_access' => ['Authenticated Access & Privilege Boundaries', 'Login memakai akun uji terenkripsi lalu validasi apakah role rendah dapat membaca resource admin/role lain. Read-only GET only.'],
                 'load_resilience' => ['DDoS Resilience Simulation', 'Controlled GET load dengan hard safety caps dan ownership verification.'],
             ],
         ]);
@@ -97,6 +98,7 @@ class SecuritySessionController extends Controller
         $session = $this->ownedSession($session)->load([
             'baseline',
             'findings',
+            'identities.accessRules',
             'logs' => fn ($query) => $query->limit(80),
         ]);
 
@@ -210,7 +212,7 @@ class SecuritySessionController extends Controller
 
     public function report(int $session): JsonResponse
     {
-        $session = $this->ownedSession($session)->load(['findings', 'baseline']);
+        $session = $this->ownedSession($session)->load(['findings', 'baseline', 'identities.accessRules']);
 
         return response()->json([
             'session' => [
@@ -234,6 +236,23 @@ class SecuritySessionController extends Controller
                 'modules' => $session->selected_modules,
                 'started_at' => $session->started_at,
                 'completed_at' => $session->completed_at,
+            ],
+            'authenticated_security' => [
+                'identity_count' => $session->identities->count(),
+                'rule_count' => $session->identities->sum(fn ($identity) => $identity->accessRules->count()),
+                'identities' => $session->identities->map(fn ($identity) => [
+                    'label' => $identity->label,
+                    'expected_role' => $identity->expected_role,
+                    'auth_type' => $identity->auth_type,
+                    'enabled' => $identity->enabled,
+                    'credentials_redacted' => true,
+                    'rules' => $identity->accessRules->map(fn ($rule) => [
+                        'label' => $rule->label,
+                        'path' => $rule->path,
+                        'expectation' => $rule->expectation,
+                        'method' => 'GET',
+                    ])->values(),
+                ])->values(),
             ],
             'summary' => [
                 'critical' => $session->findings->where('severity', 'critical')->count(),
