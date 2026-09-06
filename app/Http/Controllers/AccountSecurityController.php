@@ -20,7 +20,13 @@ class AccountSecurityController extends Controller
         $data = $request->validate([
             'security_identity_id' => ['required', 'integer'],
             'label' => ['required', 'string', 'max:160'],
-            'kind' => ['required', Rule::in(['login_enumeration', 'login_throttling'])],
+            'kind' => ['required', Rule::in([
+                'login_enumeration',
+                'login_throttling',
+                'login_surface',
+                'password_reset_surface',
+            ])],
+            'path' => ['nullable', 'string', 'max:255', 'starts_with:/'],
             'dedicated_test_account_confirmed' => ['accepted'],
         ]);
 
@@ -39,17 +45,33 @@ class AccountSecurityController extends Controller
             'security_identity_id' => $identity->id,
             'label' => $data['label'],
             'kind' => $data['kind'],
+            'path' => $data['kind'] === 'password_reset_surface'
+                ? ($data['path'] ?: '/forgot-password')
+                : ($data['kind'] === 'login_surface' ? ($identity->login_path ?: '/login') : null),
             'enabled' => true,
         ]);
-        $test->setConfig([
-            'dedicated_test_account_confirmed' => true,
-            'request_policy' => $data['kind'] === 'login_throttling'
-                ? ['max_invalid_attempts' => 3, 'password_guessing' => false]
-                : ['known_account_attempts' => 1, 'synthetic_account_attempts' => 1, 'password_guessing' => false],
-        ]);
+
+        $test->setConfig(match ($data['kind']) {
+            'login_throttling' => [
+                'dedicated_test_account_confirmed' => true,
+                'request_policy' => ['max_invalid_attempts' => 3, 'password_guessing' => false],
+            ],
+            'login_enumeration' => [
+                'dedicated_test_account_confirmed' => true,
+                'request_policy' => [
+                    'known_account_attempts' => 1,
+                    'synthetic_account_attempts' => 1,
+                    'password_guessing' => false,
+                ],
+            ],
+            default => [
+                'dedicated_test_account_confirmed' => true,
+                'request_policy' => ['method' => 'GET', 'side_effects' => false],
+            ],
+        });
         $test->save();
 
-        return back()->with('success', 'Account-security test ditambahkan dengan hard request caps.');
+        return back()->with('success', 'Account-security test ditambahkan dengan bounded safety policy.');
     }
 
     public function destroy(int $test): RedirectResponse
