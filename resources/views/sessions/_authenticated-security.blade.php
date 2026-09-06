@@ -11,14 +11,14 @@
     @if(!in_array('authenticated_access', $session->selected_modules ?? [], true))
         <div class="risk-callout">
             <strong>Module belum aktif pada session ini</strong>
-            <p>Identity dan rules dapat tetap disiapkan, tetapi scanner tidak akan menjalankannya sampai module <code>authenticated_access</code> dipilih pada session baru / profile yang mendukungnya.</p>
+            <p>Identity dan rules dapat tetap disiapkan, tetapi scanner tidak akan menjalankannya sampai module <code>authenticated_access</code> dipilih pada assessment yang mendukungnya.</p>
         </div>
     @endif
 
     <div class="auth-config-grid">
         <div class="auth-config-card">
             <h3>1. Add Test Identity</h3>
-            <p class="muted">Contoh: Student Test, Teacher Test, Admin Test, atau API Client Test.</p>
+            <p class="muted">Contoh: Student Test, Teacher Test, Admin Test, atau API Client Test. Gunakan akun khusus testing, bukan akun user produksi nyata.</p>
             <form method="POST" action="{{ route('sessions.identities.store', $session) }}" class="auth-form">
                 @csrf
                 <div class="form-grid two">
@@ -58,8 +58,8 @@
         </div>
 
         <div class="auth-config-card">
-            <h3>2. Add Authorization Boundary</h3>
-            <p class="muted">Definisikan apa yang boleh atau tidak boleh dibaca oleh sebuah role.</p>
+            <h3>2. Add Security Boundary</h3>
+            <p class="muted">Uji vertical privilege escalation maupun object-level access antar-user/tenant.</p>
             @if($session->identities->isEmpty())
                 <div class="empty">Tambahkan test identity terlebih dahulu.</div>
             @else
@@ -75,20 +75,32 @@
                     </label>
                     <div class="form-grid two">
                         <label><span>Rule Label</span><input name="label" placeholder="Admin User Management" required></label>
-                        <label><span>Resource Path</span><input name="path" placeholder="/admin/users" required></label>
+                        <label>
+                            <span>Test Type</span>
+                            <select name="kind">
+                                <option value="authorization">Authorization / Role Boundary</option>
+                                <option value="idor">IDOR / BOLA Object Boundary</option>
+                            </select>
+                        </label>
                     </div>
+                    <label class="field-block"><span>Resource Path</span><input name="path" placeholder="/admin/users atau /api/orders/OTHER_ID" required></label>
                     <label class="field-block">
                         <span>Expected Access</span>
                         <select name="expectation">
-                            <option value="denied">DENIED — role must not access this resource</option>
-                            <option value="allowed">ALLOWED — role should access this resource</option>
+                            <option value="denied">DENIED — identity must not read this resource</option>
+                            <option value="allowed">ALLOWED — identity should read this resource</option>
                         </select>
                     </label>
+                    <label class="field-block">
+                        <span>Business Context</span>
+                        <textarea name="business_context" rows="3" placeholder="Contoh: Student tidak boleh membuka manajemen user admin. Untuk IDOR: order 9821 dimiliki user B, sedangkan identity ini adalah user A."></textarea>
+                        <small>Konteks ini dipakai report agar risiko mudah dipahami developer, auditor, dan manajemen.</small>
+                    </label>
                     <div class="secret-warning">
-                        <strong>Privilege escalation signal</strong>
-                        <p>Jika rule DENIED menerima HTTP 2xx setelah login, scanner membuat finding <b>CRITICAL Broken Access Control</b>. Hanya GET yang digunakan sehingga tidak membuat/mengubah/menghapus data.</p>
+                        <strong>How this proves a weakness</strong>
+                        <p>Rule DENIED yang menerima HTTP 2xx setelah login menjadi finding <b>CRITICAL</b>. Authorization menandakan role boundary jebol; IDOR/BOLA menandakan object milik user/tenant lain bisa dibaca. Hanya GET read-only yang digunakan—tidak membuat, mengubah, atau menghapus data.</p>
                     </div>
-                    <button class="btn btn-secondary" type="submit">Add Boundary Rule</button>
+                    <button class="btn btn-secondary" type="submit">Add Security Boundary</button>
                 </form>
             @endif
         </div>
@@ -114,8 +126,10 @@
                         <div class="boundary-row">
                             <div>
                                 <span class="change {{ $rule->expectation === 'denied' ? 'new' : 'resolved' }}">{{ strtoupper($rule->expectation) }}</span>
+                                <span class="pill">{{ $rule->kind === 'idor' ? 'IDOR/BOLA' : 'AUTHZ' }}</span>
                                 <strong>{{ $rule->label }}</strong>
                                 <code>GET {{ $rule->path }}</code>
+                                @if($rule->business_context)<small>{{ $rule->business_context }}</small>@endif
                             </div>
                             <form method="POST" action="{{ route('access-rules.destroy', $rule) }}">
                                 @csrf
