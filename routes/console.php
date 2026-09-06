@@ -38,7 +38,8 @@ Artisan::command('security:dispatch-scheduled', function (): void {
     $verification = app(VerificationService::class);
 
     $templates = SecuritySession::query()
-        ->whereNotNull('schedule_frequency')
+        ->where('monitoring_enabled', true)
+        ->whereNotNull('schedule_interval_minutes')
         ->whereNotNull('next_run_at')
         ->where('next_run_at', '<=', now())
         ->whereNotNull('verified_at')
@@ -48,11 +49,13 @@ Artisan::command('security:dispatch-scheduled', function (): void {
         ->get();
 
     foreach ($templates as $template) {
+        $interval = max(60, min((int) $template->schedule_interval_minutes, 525600));
+
         if (! $verification->verify($template)) {
             $template->update([
-                'next_run_at' => now()->addHours(6),
+                'next_run_at' => now()->addMinutes(min($interval, 360)),
                 'metadata' => array_merge($template->metadata ?? [], [
-                    'last_schedule_error' => 'Proof-of-control re-verification failed.',
+                    'last_schedule_error' => 'Proof-of-control re-verification failed. Monitoring tetap aktif, tetapi run ditunda sampai ownership dapat diverifikasi lagi.',
                     'last_schedule_error_at' => now()->toIso8601String(),
                 ]),
             ]);
@@ -60,7 +63,7 @@ Artisan::command('security:dispatch-scheduled', function (): void {
             continue;
         }
 
-        $scheduledLabel = ' · Scheduled '.now()->format('Y-m-d H:i');
+        $scheduledLabel = ' · Auto '.now()->format('Y-m-d H:i');
         $safeBaseName = mb_substr($template->name, 0, max(1, 120 - mb_strlen($scheduledLabel)));
 
         $run = SecuritySession::create([
@@ -71,27 +74,24 @@ Artisan::command('security:dispatch-scheduled', function (): void {
             'profile' => $template->profile,
             'status' => 'queued',
             'progress' => 1,
-            'current_stage' => 'Queued by scheduler',
+            'current_stage' => 'Queued by auto monitoring',
             'selected_modules' => $template->selected_modules,
             'config' => $template->config,
             'verification_token' => $template->verification_token,
             'verified_at' => now(),
+            'monitoring_enabled' => false,
+            'schedule_frequency' => null,
+            'schedule_interval_minutes' => null,
             'metadata' => [
                 'scheduled_from_session_id' => $template->id,
                 'scheduled_at' => now()->toIso8601String(),
+                'monitoring_interval_minutes' => $interval,
             ],
         ]);
 
-        $nextRun = match ($template->schedule_frequency) {
-            'daily' => now()->addDay(),
-            'weekly' => now()->addWeek(),
-            'monthly' => now()->addMonth(),
-            default => null,
-        };
-
         $template->update([
             'last_scheduled_at' => now(),
-            'next_run_at' => $nextRun,
+            'next_run_at' => now()->addMinutes($interval),
             'metadata' => array_merge($template->metadata ?? [], [
                 'last_schedule_error' => null,
                 'last_scheduled_session_id' => $run->id,
@@ -103,7 +103,7 @@ Artisan::command('security:dispatch-scheduled', function (): void {
         $this->info("Queued session #{$run->id} for {$template->target_url}");
     }
 
-    $this->info('Scheduled security dispatch complete.');
-})->purpose('Re-verify ownership and queue due continuous security audits.');
+    $this->info('Flexible monitoring dispatch complete.');
+})->purpose('Re-verify ownership and queue due opt-in security monitoring runs.');
 
-Schedule::command('security:dispatch-scheduled')->hourly()->withoutOverlapping();
+Schedule::command('security:dispatch-scheduled')->everyMinute()->withoutOverlapping();
