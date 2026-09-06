@@ -33,7 +33,7 @@ class DashboardController extends Controller
         $stats = [
             'sessions' => SecuritySession::where('user_id', $userId)->count(),
             'targets' => SecuritySession::where('user_id', $userId)->distinct()->count('target_url'),
-            'scheduled' => SecuritySession::where('user_id', $userId)->whereNotNull('schedule_frequency')->count(),
+            'scheduled' => SecuritySession::where('user_id', $userId)->where('monitoring_enabled', true)->count(),
             'open_high' => SecurityFinding::whereHas('session', fn ($query) => $query->where('user_id', $userId))
                 ->whereIn('severity', ['critical', 'high'])
                 ->where('status', 'open')
@@ -59,10 +59,11 @@ class DashboardController extends Controller
 
         $upcoming = SecuritySession::query()
             ->where('user_id', $userId)
+            ->where('monitoring_enabled', true)
             ->whereNotNull('next_run_at')
             ->orderBy('next_run_at')
             ->limit(6)
-            ->get(['id', 'name', 'target_url', 'schedule_frequency', 'next_run_at']);
+            ->get();
 
         return view('dashboard', compact('sessions', 'stats', 'trend', 'upcoming'));
     }
