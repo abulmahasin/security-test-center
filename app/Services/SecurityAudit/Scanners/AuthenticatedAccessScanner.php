@@ -60,7 +60,7 @@ class AuthenticatedAccessScanner implements Scanner
                     'info',
                     "Authenticated identity aktif: {$identity->label}",
                     'Login berhasil tetapi belum ada authorization boundary rule untuk identity ini.',
-                    'Tambahkan rule seperti Student → /admin/users = DENIED, Teacher → /teacher/dashboard = ALLOWED, atau Staff → /admin/settings = DENIED.',
+                    'Tambahkan rule seperti Student → /admin/users = DENIED atau User A → /api/orders/OTHER_ID = DENIED untuk menguji IDOR/BOLA.',
                     $this->evidence($identity->label, $identity->expected_role, $authenticated['status'], 'authenticated_no_rules')
                 );
                 continue;
@@ -90,13 +90,23 @@ class AuthenticatedAccessScanner implements Scanner
         }
 
         $allowed = $status >= 200 && $status < 300;
-        $denied = in_array($status, [401, 403], true) || ($status >= 300 && $status < 400);
+        $denied = in_array($status, [401, 403, 404], true) || ($status >= 300 && $status < 400);
 
         if ($rule->expectation === 'denied' && $allowed) {
+            if ($rule->kind === 'idor') {
+                return Finding::make(
+                    'critical',
+                    "Potential IDOR/BOLA: {$identityLabel} dapat membaca {$rule->label}",
+                    'Akun terautentikasi menerima response sukses untuk resource yang menurut business rule bukan miliknya atau berada di luar scope/tenant-nya. Ini dapat menyebabkan kebocoran data antar-user, antar-unit, atau antar-tenant tanpa perlu mengambil alih akun admin.'.($rule->business_context ? ' Context: '.$rule->business_context : ''),
+                    'Tambahkan ownership/tenant scoping pada query dan policy server-side. Jangan cukup memeriksa bahwa user sudah login; verifikasi bahwa resource benar-benar dimiliki atau berada dalam scope identity tersebut. Gunakan route model binding scoped, policy, query constraint, dan regression test untuk setiap object-level permission.',
+                    $this->evidence($identityLabel, $role, $status, 'idor_unexpectedly_allowed', $rule)
+                );
+            }
+
             return Finding::make(
                 'critical',
                 "Broken Access Control: {$identityLabel} dapat mengakses {$rule->label}",
-                'Akun dengan role yang seharusnya tidak memiliki akses menerima response sukses pada resource terproteksi. Jika akun role rendah dikompromikan, attacker berpotensi menembus fungsi administratif atau data role lain tanpa perlu mengetahui password admin.',
+                'Akun dengan role yang seharusnya tidak memiliki akses menerima response sukses pada resource terproteksi. Jika akun role rendah dikompromikan, attacker berpotensi menembus fungsi administratif atau data role lain tanpa perlu mengetahui password admin.'.($rule->business_context ? ' Context: '.$rule->business_context : ''),
                 'Terapkan authorization server-side pada route/controller/API menggunakan middleware, policy/gate, permission checks, ownership checks, dan deny-by-default. Jangan mengandalkan menu/tombol yang disembunyikan di UI. Tambahkan automated authorization regression test untuk boundary ini.',
                 $this->evidence($identityLabel, $role, $status, 'unexpectedly_allowed', $rule)
             );
@@ -105,7 +115,7 @@ class AuthenticatedAccessScanner implements Scanner
         if ($rule->expectation === 'denied' && $denied) {
             return Finding::make(
                 'info',
-                "Authorization boundary enforced: {$rule->label}",
+                ($rule->kind === 'idor' ? 'Object boundary enforced: ' : 'Authorization boundary enforced: ').$rule->label,
                 'Resource yang dilarang untuk identity ini ditolak sesuai expectation.',
                 'Pertahankan policy ini dan jalankan sebagai regression check setiap release.',
                 $this->evidence($identityLabel, $role, $status, 'correctly_denied', $rule)
@@ -136,7 +146,7 @@ class AuthenticatedAccessScanner implements Scanner
             'low',
             "Authorization response tidak konklusif: {$rule->label}",
             "Endpoint mengembalikan HTTP {$status}, sehingga tidak dapat diklasifikasikan sebagai allowed atau denied dengan pasti.",
-            'Periksa endpoint secara manual dan sesuaikan boundary rule bila endpoint memang mengembalikan status khusus seperti 404/405/5xx.',
+            'Periksa endpoint secara manual dan sesuaikan boundary rule bila endpoint memang mengembalikan status khusus seperti 405/5xx.',
             $this->evidence($identityLabel, $role, $status, 'inconclusive', $rule)
         );
     }
@@ -146,6 +156,7 @@ class AuthenticatedAccessScanner implements Scanner
         return json_encode([
             'identity' => $identity,
             'expected_role' => $role,
+            'kind' => $rule?->kind,
             'path' => $rule?->path,
             'expectation' => $rule?->expectation,
             'http_status' => $status,
