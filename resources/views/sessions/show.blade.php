@@ -4,16 +4,33 @@
 @section('page-title', $session->name)
 
 @section('content')
+@php
+    $intervalValue = 24;
+    $intervalUnit = 'hours';
+    if ($session->schedule_interval_minutes) {
+        if ($session->schedule_interval_minutes % 10080 === 0) {
+            $intervalValue = (int) ($session->schedule_interval_minutes / 10080);
+            $intervalUnit = 'weeks';
+        } elseif ($session->schedule_interval_minutes % 1440 === 0) {
+            $intervalValue = (int) ($session->schedule_interval_minutes / 1440);
+            $intervalUnit = 'days';
+        } else {
+            $intervalValue = max(1, (int) ($session->schedule_interval_minutes / 60));
+            $intervalUnit = 'hours';
+        }
+    }
+@endphp
+
 <section class="session-hero">
     <div>
         <div class="hero-badges">
             <span class="pill">{{ ucfirst($session->environment) }}</span>
             <span class="status {{ $session->status }}" id="status-badge">{{ ucfirst($session->status) }}</span>
             @if($session->verified_at)<span class="status completed">Verified</span>@else<span class="status draft">Unverified</span>@endif
-            @if($session->schedule_frequency)<span class="pill">{{ ucfirst($session->schedule_frequency) }} monitoring</span>@endif
+            @if($session->monitoring_enabled)<span class="status completed">Monitoring ON</span>@else<span class="pill">Monitoring OFF</span>@endif
         </div>
         <h2>{{ $session->target_url }}</h2>
-        <p>{{ count($session->selected_modules ?? []) }} security modules • Profile {{ ucfirst($session->profile) }} @if($session->next_run_at) • Next {{ $session->next_run_at->format('d M Y H:i') }} @endif</p>
+        <p>{{ count($session->selected_modules ?? []) }} security modules • Profile {{ ucfirst($session->profile) }} @if($session->monitoring_enabled) • {{ $session->monitoringLabel() }} @endif @if($session->next_run_at) • Next {{ $session->next_run_at->format('d M Y H:i') }} @endif</p>
     </div>
     <div class="hero-score-group">
         <div class="score-ring"><span>Score</span><strong id="score-value">{{ $session->score ?? '—' }}</strong></div>
@@ -27,7 +44,7 @@
         <div>
             <p class="eyebrow">Ownership Verification</p>
             <h2>Verifikasi target sebelum audit</h2>
-            <p class="muted">Proof-of-control juga diverifikasi ulang sebelum setiap scheduled run.</p>
+            <p class="muted">Proof-of-control wajib sebelum active audit maupun auto monitoring. Ini mencegah scanner digunakan pada sistem yang tidak Anda kuasai.</p>
         </div>
     </div>
     <div class="verification-steps">
@@ -39,6 +56,32 @@
     <form method="POST" action="{{ route('sessions.verify', $session) }}">@csrf<button class="btn btn-primary" type="submit">Verify Target Now</button></form>
 </section>
 @else
+<section class="panel monitoring-panel">
+    <div class="panel-head">
+        <div>
+            <p class="eyebrow">User Controlled Automation</p>
+            <h2>Auto Monitoring</h2>
+            <p class="muted">Monitoring tidak wajib. Anda bebas mengaktifkan, mengubah interval, atau mematikannya kapan saja. Setiap auto-run tetap melakukan proof-of-control ulang.</p>
+        </div>
+        <span class="status {{ $session->monitoring_enabled ? 'completed' : 'draft' }}">{{ $session->monitoring_enabled ? 'ACTIVE' : 'OFF' }}</span>
+    </div>
+
+    <form method="POST" action="{{ route('sessions.monitoring', $session) }}" class="monitoring-form">
+        @csrf
+        @method('PATCH')
+        <label class="monitoring-switch">
+            <input type="checkbox" name="monitoring_enabled" value="1" id="session-monitoring-enabled" @checked($session->monitoring_enabled)>
+            <span><strong>Enable Auto Monitoring</strong><small>Uncheck lalu Save untuk mematikan monitoring sepenuhnya.</small></span>
+        </label>
+        <div class="form-grid three monitoring-inline">
+            <label><span>Run Every</span><input type="number" min="1" max="8760" name="monitoring_interval_value" value="{{ $intervalValue }}"></label>
+            <label><span>Unit</span><select name="monitoring_interval_unit"><option value="hours" @selected($intervalUnit === 'hours')>Hour(s)</option><option value="days" @selected($intervalUnit === 'days')>Day(s)</option><option value="weeks" @selected($intervalUnit === 'weeks')>Week(s)</option></select></label>
+            <div class="monitoring-save"><button type="submit" class="btn btn-secondary">Save Monitoring</button></div>
+        </div>
+        <small class="muted">Minimal 1 jam, maksimal 1 tahun. @if($session->next_run_at)Next automatic assessment: {{ $session->next_run_at->format('d M Y H:i') }}.@endif</small>
+    </form>
+</section>
+
 <section class="run-grid">
     <article class="panel progress-panel">
         <div class="panel-head">
@@ -88,7 +131,7 @@
 
 <section class="panel">
     <div class="panel-head">
-        <div><p class="eyebrow">Continuous Posture Report</p><h2>Findings & Remediation</h2><p class="muted">NEW = baru dibanding baseline. PERSISTENT = masih ditemukan sejak baseline sebelumnya.</p></div>
+        <div><p class="eyebrow">Continuous Posture Report</p><h2>Risk, Evidence & Solution</h2><p class="muted">Setiap finding menjelaskan dampak praktis dan solusi. Untuk sensitive-file scan, isi file rahasia tidak pernah disimpan di report.</p></div>
         <a class="btn btn-secondary" href="{{ route('sessions.report', $session) }}">Export JSON</a>
     </div>
 
@@ -102,9 +145,9 @@
                 <span class="pill">{{ str_replace('_', ' ', strtoupper($finding->status)) }}</span>
             </div>
             <h3>{{ $finding->title }}</h3>
-            <p>{{ $finding->description }}</p>
-            @if($finding->evidence)<div class="evidence"><strong>Evidence</strong><code>{{ $finding->evidence }}</code></div>@endif
-            <div class="remediation"><strong>Recommended Remediation</strong><p>{{ $finding->remediation }}</p></div>
+            <div class="risk-detail"><strong>Risiko / Dampak</strong><p>{{ $finding->description }}</p></div>
+            @if($finding->evidence)<div class="evidence"><strong>Evidence (redacted)</strong><code>{{ $finding->evidence }}</code></div>@endif
+            <div class="remediation"><strong>Solusi / Recommended Remediation</strong><p>{{ $finding->remediation }}</p></div>
             <form method="POST" action="{{ route('findings.status', $finding) }}" class="finding-governance">
                 @csrf
                 @method('PATCH')
