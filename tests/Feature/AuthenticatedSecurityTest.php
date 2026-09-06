@@ -32,6 +32,27 @@ class AuthenticatedSecurityTest extends TestCase
         $this->assertSame($password, $identity->fresh()->password());
     }
 
+    public function test_test_session_cookie_is_encrypted_at_rest(): void
+    {
+        $session = $this->makeSession();
+        $cookie = 'laravel_session=test-session-cookie-value; XSRF-TOKEN=test-xsrf';
+
+        $identity = new SecurityIdentity([
+            'security_session_id' => $session->id,
+            'label' => 'Student Session Replay Test',
+            'expected_role' => 'student',
+            'auth_type' => 'cookie',
+            'username' => '',
+            'success_path' => '/dashboard',
+            'enabled' => true,
+        ]);
+        $identity->setSessionCookie($cookie);
+        $identity->save();
+
+        $this->assertStringNotContainsString($cookie, $identity->fresh()->session_cookie_encrypted);
+        $this->assertSame($cookie, $identity->fresh()->sessionCookie());
+    }
+
     public function test_denied_boundary_returning_200_becomes_critical_broken_access_control(): void
     {
         $session = $this->makeSession();
