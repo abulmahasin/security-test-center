@@ -109,7 +109,7 @@ class EnterpriseSecurityModulesTest extends TestCase
         $medium = collect($findings)->first(fn (array $finding) => $finding['severity'] === 'medium');
 
         $this->assertNotNull($medium);
-        $this->assertStringContainsString('recovery form tanpa CSRF', strtolower($medium['title']));
+        $this->assertStringContainsString('recovery form tanpa csrf', strtolower($medium['title']));
         $this->assertStringContainsString('reset_request_sent', (string) $medium['evidence']);
     }
 
