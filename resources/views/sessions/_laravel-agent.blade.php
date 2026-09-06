@@ -47,6 +47,13 @@
         </div>
     </div>
 
+    @if($session->agentManifests->isNotEmpty() && $session->identities->isNotEmpty())
+        <div class="risk-callout">
+            <strong>Automatic Authorization Matrix</strong>
+            <p>Pilih test identity role rendah untuk membuat rule <code>DENIED</code> otomatis dari route statis/read-only yang terlihat administratif seperti <code>/admin</code>, <code>/settings</code>, <code>/users</code>, <code>/roles</code>, dan <code>/permissions</code>. Maksimum 100 rule per manifest. Route dinamis berparameter tidak ditebak otomatis.</p>
+        </div>
+    @endif
+
     <div class="auth-matrix">
         <div class="panel-head compact"><div><p class="eyebrow">Manifest History</p><h3>Source-Assisted Snapshots</h3></div></div>
         @forelse($session->agentManifests as $manifest)
@@ -56,11 +63,24 @@
                     <strong>{{ $manifest->source_label }}</strong>
                     <code>{{ $manifest->routes_count }} routes · {{ optional($manifest->received_at)->format('d M Y H:i') }}</code>
                 </div>
-                <form method="POST" action="{{ route('agent-manifests.destroy', $manifest) }}">
-                    @csrf
-                    @method('DELETE')
-                    <button class="btn btn-ghost btn-small" type="submit">Delete</button>
-                </form>
+                <div class="manifest-actions">
+                    @if($session->identities->isNotEmpty())
+                        <form method="POST" action="{{ route('sessions.agent-manifests.generate-rules', [$session, $manifest]) }}" class="manifest-rule-form">
+                            @csrf
+                            <select name="security_identity_id" required>
+                                @foreach($session->identities as $identity)
+                                    <option value="{{ $identity->id }}">{{ $identity->label }} @if($identity->expected_role)({{ $identity->expected_role }})@endif</option>
+                                @endforeach
+                            </select>
+                            <button class="btn btn-secondary btn-small" type="submit">Generate DENIED Matrix</button>
+                        </form>
+                    @endif
+                    <form method="POST" action="{{ route('agent-manifests.destroy', $manifest) }}">
+                        @csrf
+                        @method('DELETE')
+                        <button class="btn btn-ghost btn-small" type="submit">Delete</button>
+                    </form>
+                </div>
             </article>
         @empty
             <div class="empty">Belum ada Laravel Agent manifest.</div>
