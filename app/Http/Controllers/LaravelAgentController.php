@@ -142,7 +142,7 @@ class LaravelAgentController extends Controller
                 ],
                 [
                     'label' => mb_substr('Auto: '.$label, 0, 160),
-                    'test_kind' => 'authorization',
+                    'kind' => 'authorization',
                     'business_context' => 'Auto-generated from Laravel Agent manifest as an administrative/sensitive read-only route. Low-privilege identity should not receive successful access.',
                 ],
             );
