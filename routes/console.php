@@ -89,7 +89,9 @@ Artisan::command('security:dispatch-scheduled', function (): void {
             ],
         ]);
 
-        $template->loadMissing('identities.accessRules');
+        $template->loadMissing(['identities.accessRules', 'accountTests', 'agentManifests']);
+        $identityMap = [];
+
         foreach ($template->identities as $identity) {
             $runIdentity = $run->identities()->create([
                 'label' => $identity->label,
@@ -101,18 +103,44 @@ Artisan::command('security:dispatch-scheduled', function (): void {
                 'username' => $identity->username,
                 'password_encrypted' => $identity->password_encrypted,
                 'bearer_token_encrypted' => $identity->bearer_token_encrypted,
+                'session_cookie_encrypted' => $identity->session_cookie_encrypted,
                 'success_path' => $identity->success_path,
                 'enabled' => $identity->enabled,
             ]);
+            $identityMap[$identity->id] = $runIdentity->id;
 
             foreach ($identity->accessRules as $rule) {
                 $runIdentity->accessRules()->create([
                     'security_session_id' => $run->id,
                     'label' => $rule->label,
+                    'kind' => $rule->kind,
                     'path' => $rule->path,
                     'expectation' => $rule->expectation,
+                    'business_context' => $rule->business_context,
                 ]);
             }
+        }
+
+        foreach ($template->accountTests as $test) {
+            $run->accountTests()->create([
+                'security_identity_id' => $test->security_identity_id ? ($identityMap[$test->security_identity_id] ?? null) : null,
+                'label' => $test->label,
+                'kind' => $test->kind,
+                'path' => $test->path,
+                'config_encrypted' => $test->config_encrypted,
+                'enabled' => $test->enabled,
+            ]);
+        }
+
+        if ($latestManifest = $template->agentManifests->sortByDesc('received_at')->first()) {
+            $run->agentManifests()->create([
+                'source_label' => $latestManifest->source_label,
+                'framework' => $latestManifest->framework,
+                'framework_version' => $latestManifest->framework_version,
+                'routes_count' => $latestManifest->routes_count,
+                'manifest' => $latestManifest->manifest,
+                'received_at' => $latestManifest->received_at,
+            ]);
         }
 
         $template->update([
