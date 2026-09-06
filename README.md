@@ -13,13 +13,57 @@ Security Test Center tidak lagi sekadar menjalankan scan satu kali. Setiap compl
 - Baseline otomatis dari assessment sebelumnya untuk target URL yang sama.
 - Risk delta terhadap baseline.
 - Stable finding fingerprint.
-- Finding state:
-  - `NEW`
-  - `PERSISTENT`
+- Finding state `NEW` dan `PERSISTENT`.
 - Resolved finding detection.
 - Dashboard trend score + compliance.
 - Regression counter.
 - New/resolved finding metrics.
+
+### Authenticated Security & Privilege Boundaries
+
+Platform dapat masuk ke aplikasi memakai **akun uji yang Anda kontrol** dan memvalidasi authorization setelah login.
+
+Fitur:
+
+- encrypted Test Identity Vault,
+- form login dengan configurable login path,
+- configurable username field,
+- configurable password field,
+- Laravel-style CSRF hidden token/meta token support,
+- Bearer API token identity,
+- configurable success/verification path,
+- Role / Permission Matrix,
+- read-only privilege boundary checks,
+- Broken Access Control detection,
+- scheduled authenticated regression testing.
+
+Contoh matrix:
+
+```text
+Student Test -> /student/dashboard = ALLOWED
+Student Test -> /admin/users       = DENIED
+Teacher Test -> /teacher/exams     = ALLOWED
+Teacher Test -> /admin/settings    = DENIED
+Admin Test   -> /admin/users       = ALLOWED
+```
+
+Jika rule `DENIED` menerima HTTP `2xx`, assessment membuat finding **CRITICAL Broken Access Control** karena akun role rendah ternyata dapat membaca resource role tinggi.
+
+Authenticated resource checks hanya menggunakan **GET read-only**. Platform tidak menggunakan brute-force password, credential stuffing, account takeover terhadap akun nyata, atau destructive state-changing actions.
+
+#### Credential protection
+
+Password dan bearer token:
+
+- dienkripsi memakai Laravel `Crypt`,
+- tidak disimpan plaintext,
+- tidak pernah ditampilkan kembali melalui UI,
+- tidak dimasukkan ke log,
+- tidak dimasukkan ke JSON report,
+- evidence selalu menandai `credentials_redacted=true`,
+- response body authenticated endpoint tidak disimpan sebagai evidence.
+
+Gunakan akun khusus testing bila memungkinkan, bukan akun user produksi sehari-hari.
 
 ### Flexible Auto Monitoring
 
@@ -33,23 +77,11 @@ User dapat:
 - mengubah interval tanpa membuat session baru,
 - mematikan monitoring kapan saja tanpa menghapus history.
 
-Batas interval:
+Batas interval minimum 1 jam dan maksimum 1 tahun.
 
-- minimum: 1 jam,
-- maksimum: 1 tahun.
+Sebelum setiap auto-run, platform **memverifikasi ulang proof-of-control**. Jika verification file hilang atau berubah, scheduled audit tidak dijalankan.
 
-Contoh yang valid:
-
-- setiap 6 jam,
-- setiap 12 jam,
-- setiap 1 hari,
-- setiap 3 hari,
-- setiap 1 minggu,
-- setiap 4 minggu.
-
-Sebelum setiap auto-run, platform **memverifikasi ulang proof-of-control**. Jika verification file sudah hilang atau berubah, scheduled audit tidak dijalankan dan run ditunda sampai ownership dapat diverifikasi lagi.
-
-Setiap auto-run membuat session baru sehingga history, baseline, evidence, dan trend tidak ditimpa.
+Scheduled run menyalin encrypted identity vault + authorization matrix sebagai ciphertext sehingga authenticated regression test dapat berjalan tanpa mengekspos secret.
 
 ### Security modules
 
@@ -64,13 +96,14 @@ Setiap auto-run membuat session baru sehingga history, baseline, evidence, dan t
 - Passive HTTP Method Exposure
 - Passive DNS Posture
 - **Sensitive File Exposure**
+- **Authenticated Access & Privilege Boundaries**
 - **DDoS Resilience Simulation** dalam mode controlled-load dengan hard safety caps
 
 ### Sensitive File Exposure Scanner
 
-Scanner ini dirancang untuk mengetahui apakah file yang seharusnya private ternyata dapat dibaca melalui web server.
+Scanner mengetahui apakah file yang seharusnya private ternyata dapat dibaca melalui web server.
 
-Daftar pemeriksaan saat ini mencakup:
+Fixed paths saat ini:
 
 - `/.env`
 - `/.git/config`
@@ -82,52 +115,30 @@ Daftar pemeriksaan saat ini mencakup:
 - `/auth.json`
 - `/phpinfo.php`
 
-Scanner melakukan request hanya pada **fixed allowlist path** tersebut dan membaca sampel kecil maksimal 2048 byte untuk mencocokkan signature file.
+Scanner membaca sampel kecil maksimal 2048 byte hanya untuk signature detection. Isi secret **tidak disimpan** ke database/report.
 
-Isi file sensitif **tidak disimpan** ke database maupun report. Evidence hanya menyimpan:
-
-- path,
-- HTTP status,
-- tipe signature yang cocok,
-- ukuran sampel maksimum,
-- flag `content_redacted=true`.
-
-Contoh risiko yang dijelaskan report:
-
-- `.env` → kebocoran `APP_KEY`, database credential, API token, mail/storage secret.
-- `.git/config` → source-code reconstruction dan kebocoran history/config repository.
-- Laravel log → stack trace, path internal, query, token, dan data request.
-- SQLite/database backup → kebocoran data aplikasi dalam skala besar.
-- `.npmrc` / `auth.json` → token private package/repository.
-- `phpinfo.php` → fingerprint runtime, extension, path, dan environment variable.
-
-Setiap finding menampilkan format yang mudah dibaca:
-
-1. **Risiko / Dampak**
-2. **Evidence (redacted)**
-3. **Solusi / Recommended Remediation**
+Evidence hanya menyimpan path, HTTP status, matched signature, sample limit, dan `content_redacted=true`.
 
 ### Safety model
 
 Platform sengaja **tidak** menyediakan:
 
-- arbitrary flood
-- spoofing
-- botnet controls
-- UDP amplification
-- raw packet attacks
-- credential attacks
-- exploit payload generator
-- arbitrary file downloader
-- target-verification bypass
+- arbitrary flood,
+- spoofing,
+- botnet controls,
+- UDP amplification,
+- raw packet attacks,
+- password brute force / credential stuffing,
+- exploit payload generator,
+- arbitrary file downloader,
+- unauthorized account takeover,
+- target-verification bypass.
 
-Controlled-load hanya dapat berjalan pada target yang sudah membuktikan kontrol melalui:
+Controlled-load hanya berjalan pada target yang sudah membuktikan kontrol melalui:
 
 ```text
 https://target.example/.well-known/security-test-center.txt
 ```
-
-Isi file harus sama persis dengan token yang dibuat platform.
 
 Hard limits dikunci server-side:
 
@@ -178,8 +189,6 @@ php artisan queue:work --tries=1 --timeout=180
 
 ## Auto monitoring scheduler
 
-Laravel scheduler harus berjalan setiap menit pada production agar custom interval dapat dieksekusi mendekati waktu yang ditentukan:
-
 ```cron
 * * * * * cd /path/to/security-test-center && php artisan schedule:run >> /dev/null 2>&1
 ```
@@ -196,19 +205,15 @@ Dispatcher internal:
 php artisan security:dispatch-scheduled
 ```
 
-Dispatcher hanya memproses session dengan `monitoring_enabled=true`, due time sudah tercapai, target masih verified, dan session template tidak sedang running.
-
 ## Testing private/internal applications
 
-Private/reserved IP diblokir secara default untuk mengurangi SSRF risk.
-
-Jika platform memang berada pada jaringan internal yang Anda kontrol:
+Private/reserved IP diblokir secara default. Untuk deployment internal yang memang Anda kontrol:
 
 ```env
 SECURITY_TEST_ALLOW_PRIVATE_TARGETS=true
 ```
 
-Gunakan hanya pada deployment private/admin-only dan tetap batasi jaringan scanner.
+Tetap deploy platform sebagai private/admin-only tool dan batasi jaringan scanner.
 
 ## Production deployment
 
@@ -220,19 +225,24 @@ Gunakan hanya pada deployment private/admin-only dan tetap batasi jaringan scann
 - Scheduler via cron/systemd.
 - Dashboard di belakang VPN, Zero Trust, atau admin allowlist.
 - Jalankan controlled-load pada maintenance window.
-- Pisahkan scanner node dari application production untuk capacity testing yang lebih serius.
-- Backup database karena history assessment sekarang menjadi baseline posture jangka panjang.
+- Gunakan dedicated test accounts untuk authenticated scans.
+- Backup database karena history assessment menjadi baseline posture jangka panjang.
 
 ## Architecture
 
 ```text
 app/
 ├── Http/Controllers/
+│   └── AuthenticatedSecurityController.php
 ├── Jobs/
 │   └── RunSecurityAudit.php
 ├── Models/
+│   ├── SecurityIdentity.php
+│   └── SecurityAccessRule.php
 └── Services/SecurityAudit/
+    ├── AuthenticatedSessionService.php
     ├── Scanners/
+    │   ├── AuthenticatedAccessScanner.php
     │   └── SensitiveFilesScanner.php
     ├── HttpProbe.php
     ├── TargetGuard.php
@@ -246,12 +256,15 @@ app/
 
 GitHub Actions menjalankan:
 
-- Composer dependency install.
-- Laravel application preparation.
-- Database migrations.
-- PHP syntax validation.
-- Automated tests termasuk TargetGuard, posture baseline/regression engine, dan flexible monitoring controls.
+- Composer dependency install,
+- database migrations,
+- PHP syntax validation,
+- automated tests untuk TargetGuard,
+- posture baseline/regression engine,
+- flexible monitoring controls,
+- encrypted identity vault,
+- Critical Broken Access Control classification.
 
 ## Scope
 
-Platform ini adalah defensive security posture system untuk aset yang Anda kuasai. Integrasi enterprise lanjutan seperti ZAP/Burp Enterprise/Nuclei sebaiknya dijalankan melalui isolated runner dengan allowlist, proof-of-control, dan policy enforcement yang sama.
+Platform ini adalah defensive security posture system untuk aset yang Anda kuasai. Tahap enterprise berikutnya dapat menambahkan IDOR/BOLA object-boundary tests, OpenAPI inventory, Laravel security agent, source/runtime correlation, dependency/SAST analysis, policy gates, notifications, dan isolated scanner workers.
