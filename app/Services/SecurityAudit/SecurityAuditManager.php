@@ -2,6 +2,7 @@
 
 namespace App\Services\SecurityAudit;
 
+use App\Services\SecurityAudit\Scanners\AuthenticatedAccessScanner;
 use App\Services\SecurityAudit\Scanners\CookieScanner;
 use App\Services\SecurityAudit\Scanners\CorsScanner;
 use App\Services\SecurityAudit\Scanners\DnsPostureScanner;
@@ -31,6 +32,7 @@ class SecurityAuditManager
         private readonly HttpMethodsScanner $httpMethods,
         private readonly DnsPostureScanner $dnsPosture,
         private readonly SensitiveFilesScanner $sensitiveFiles,
+        private readonly AuthenticatedAccessScanner $authenticatedAccess,
     ) {
     }
 
@@ -49,6 +51,7 @@ class SecurityAuditManager
             'http_methods' => $this->httpMethods,
             'dns_posture' => $this->dnsPosture,
             'sensitive_files' => $this->sensitiveFiles,
+            'authenticated_access' => $this->authenticatedAccess,
             default => throw new InvalidArgumentException("Unknown security module: {$module}"),
         };
     }
