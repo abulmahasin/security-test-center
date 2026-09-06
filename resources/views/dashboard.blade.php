@@ -9,7 +9,7 @@
     <article class="metric-card"><span>Total Assessments</span><strong>{{ $stats['sessions'] }}</strong><small>Manual + scheduled sessions</small></article>
     <article class="metric-card"><span>Average Score</span><strong>{{ $stats['average_score'] ?? '—' }}</strong><small>Last {{ $trend->count() }} completed audits</small></article>
     <article class="metric-card"><span>Latest Posture</span><strong>{{ $stats['latest_grade'] ?? '—' }}</strong><small>Score {{ $stats['latest_score'] ?? '—' }} • Compliance {{ $stats['latest_compliance'] ?? '—' }}%</small></article>
-    <article class="metric-card"><span>Continuous Monitoring</span><strong>{{ $stats['scheduled'] }}</strong><small>Scheduled security templates</small></article>
+    <article class="metric-card"><span>Auto Monitoring Active</span><strong>{{ $stats['scheduled'] }}</strong><small>Only sessions explicitly enabled by user</small></article>
     <article class="metric-card"><span>High Risk Open</span><strong>{{ $stats['open_high'] }}</strong><small>Critical + high findings in history</small></article>
     <article class="metric-card"><span>Regressions</span><strong class="{{ $stats['regressions'] > 0 ? 'text-danger' : 'text-good' }}">{{ $stats['regressions'] }}</strong><small>Runs with score below baseline</small></article>
     <article class="metric-card"><span>Resolved Findings</span><strong class="text-good">{{ $stats['resolved_findings'] }}</strong><small>{{ $stats['new_findings'] }} new findings observed</small></article>
@@ -36,15 +36,15 @@
     </section>
 
     <section class="panel">
-        <div class="panel-head"><div><p class="eyebrow">Automation</p><h2>Upcoming Security Runs</h2></div></div>
+        <div class="panel-head"><div><p class="eyebrow">Automation</p><h2>Upcoming Security Runs</h2><p class="muted">Auto monitoring selalu opt-in dan dapat dimatikan atau diubah intervalnya dari halaman session.</p></div></div>
         <div class="upcoming-list">
             @forelse($upcoming as $item)
                 <a href="{{ route('sessions.show', $item) }}" class="upcoming-item">
                     <div><strong>{{ $item->name }}</strong><span>{{ $item->target_url }}</span></div>
-                    <div class="upcoming-time"><span>{{ ucfirst($item->schedule_frequency) }}</span><strong>{{ $item->next_run_at->format('d M H:i') }}</strong></div>
+                    <div class="upcoming-time"><span>{{ $item->monitoringLabel() }}</span><strong>{{ $item->next_run_at->format('d M H:i') }}</strong></div>
                 </a>
             @empty
-                <div class="empty">Belum ada continuous monitoring. Atur schedule saat membuat session.</div>
+                <div class="empty">Auto monitoring belum diaktifkan pada target mana pun.</div>
             @endforelse
         </div>
     </section>
