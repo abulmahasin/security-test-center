@@ -30,6 +30,8 @@ class SecuritySession extends Model
         'selected_modules',
         'config',
         'schedule_frequency',
+        'monitoring_enabled',
+        'schedule_interval_minutes',
         'next_run_at',
         'last_scheduled_at',
         'verification_token',
@@ -46,6 +48,8 @@ class SecuritySession extends Model
             'selected_modules' => 'array',
             'config' => 'array',
             'metadata' => 'array',
+            'monitoring_enabled' => 'boolean',
+            'schedule_interval_minutes' => 'integer',
             'verified_at' => 'datetime',
             'started_at' => 'datetime',
             'completed_at' => 'datetime',
@@ -92,6 +96,27 @@ class SecuritySession extends Model
 
     public function isScheduled(): bool
     {
-        return filled($this->schedule_frequency) && $this->next_run_at !== null;
+        return $this->monitoring_enabled
+            && $this->schedule_interval_minutes !== null
+            && $this->next_run_at !== null;
+    }
+
+    public function monitoringLabel(): string
+    {
+        if (! $this->monitoring_enabled || ! $this->schedule_interval_minutes) {
+            return 'Manual only';
+        }
+
+        $minutes = $this->schedule_interval_minutes;
+
+        if ($minutes % 10080 === 0) {
+            return 'Every '.($minutes / 10080).' week(s)';
+        }
+
+        if ($minutes % 1440 === 0) {
+            return 'Every '.($minutes / 1440).' day(s)';
+        }
+
+        return 'Every '.($minutes / 60).' hour(s)';
     }
 }
