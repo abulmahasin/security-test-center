@@ -97,6 +97,7 @@ Artisan::command('security:dispatch-scheduled', function (): void {
                 'auth_type' => $identity->auth_type,
                 'login_path' => $identity->login_path,
                 'username_field' => $identity->username_field,
+                'password_field' => $identity->password_field,
                 'username' => $identity->username,
                 'password_encrypted' => $identity->password_encrypted,
                 'bearer_token_encrypted' => $identity->bearer_token_encrypted,
