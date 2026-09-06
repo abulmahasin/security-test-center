@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\SecurityAccessRule;
 use App\Models\SecurityAccountTest;
 use App\Models\SecurityAgentManifest;
 use App\Models\SecurityIdentity;
@@ -78,6 +79,40 @@ class EnterpriseSecurityModulesTest extends TestCase
         $this->assertStringContainsString('password_guessing', (string) $high['evidence']);
     }
 
+    public function test_password_recovery_surface_without_csrf_becomes_medium_finding(): void
+    {
+        [$session, $identity] = $this->makeSessionAndIdentity();
+
+        SecurityAccountTest::create([
+            'security_session_id' => $session->id,
+            'security_identity_id' => $identity->id,
+            'label' => 'Recovery Surface',
+            'kind' => 'password_reset_surface',
+            'path' => '/forgot-password',
+            'enabled' => true,
+        ]);
+
+        $service = Mockery::mock(AccountSecurityService::class);
+        $service->shouldReceive('inspectSurface')->once()->withArgs(fn ($s, $path) => $path === '/forgot-password')->andReturn([
+            'status' => 200,
+            'length' => 1200,
+            'location' => null,
+            'csrf_present' => false,
+            'password_input_present' => false,
+            'email_or_username_input_present' => true,
+            'form_count' => 1,
+            'autocomplete_values' => ['email'],
+            'response_body_stored' => false,
+        ]);
+
+        $findings = (new AccountCompromiseScanner($service))->scan($session);
+        $medium = collect($findings)->first(fn (array $finding) => $finding['severity'] === 'medium');
+
+        $this->assertNotNull($medium);
+        $this->assertStringContainsString('recovery form tanpa CSRF', strtolower($medium['title']));
+        $this->assertStringContainsString('reset_request_sent', (string) $medium['evidence']);
+    }
+
     public function test_laravel_agent_flags_public_admin_route_as_critical(): void
     {
         [$session] = $this->makeSessionAndIdentity();
@@ -109,6 +144,46 @@ class EnterpriseSecurityModulesTest extends TestCase
 
         $this->assertNotNull($critical);
         $this->assertStringContainsString('tanpa auth middleware', $critical['title']);
+    }
+
+    public function test_laravel_manifest_can_generate_denied_matrix_for_low_privilege_identity(): void
+    {
+        [$session, $identity, $user] = $this->makeSessionAndIdentity();
+
+        $manifest = SecurityAgentManifest::create([
+            'security_session_id' => $session->id,
+            'source_label' => 'LMS Test',
+            'framework' => 'laravel',
+            'framework_version' => '12.x',
+            'routes_count' => 3,
+            'manifest' => [
+                'security' => ['app_debug' => false, 'session_secure' => true],
+                'routes' => [
+                    ['methods' => ['GET'], 'uri' => 'admin/users', 'name' => 'admin.users.index', 'middleware' => ['web', 'auth', 'role:admin']],
+                    ['methods' => ['GET'], 'uri' => 'settings/security', 'name' => 'settings.security', 'middleware' => ['web', 'auth']],
+                    ['methods' => ['GET'], 'uri' => 'students/{student}', 'name' => 'students.show', 'middleware' => ['web', 'auth']],
+                ],
+            ],
+            'received_at' => now(),
+        ]);
+
+        $this->actingAs($user)
+            ->post(route('sessions.agent-manifests.generate-rules', [$session, $manifest]), [
+                'security_identity_id' => $identity->id,
+            ])
+            ->assertRedirect();
+
+        $this->assertSame(2, SecurityAccessRule::where('security_session_id', $session->id)->count());
+        $this->assertDatabaseHas('security_access_rules', [
+            'security_identity_id' => $identity->id,
+            'path' => '/admin/users',
+            'expectation' => 'denied',
+            'kind' => 'authorization',
+        ]);
+        $this->assertDatabaseMissing('security_access_rules', [
+            'security_identity_id' => $identity->id,
+            'path' => '/students/{student}',
+        ]);
     }
 
     private function makeSessionAndIdentity(): array
@@ -148,6 +223,6 @@ class EnterpriseSecurityModulesTest extends TestCase
         $identity->setPassword('test-account-password');
         $identity->save();
 
-        return [$session, $identity];
+        return [$session, $identity, $user];
     }
 }
