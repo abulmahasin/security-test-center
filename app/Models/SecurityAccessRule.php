@@ -11,8 +11,10 @@ class SecurityAccessRule extends Model
         'security_session_id',
         'security_identity_id',
         'label',
+        'kind',
         'path',
         'expectation',
+        'business_context',
     ];
 
     public function session(): BelongsTo
