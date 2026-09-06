@@ -1,3 +1,65 @@
+@php
+    $attackPaths = $session->findings->map(function ($finding) {
+        if (!$finding->evidence) return null;
+        $decoded = json_decode($finding->evidence, true);
+        $path = is_array($decoded) ? ($decoded['attack_path'] ?? null) : null;
+        if (!is_array($path)) return null;
+
+        return [
+            'finding' => $finding,
+            'path' => $path,
+        ];
+    })->filter()->values();
+@endphp
+
+@if($attackPaths->isNotEmpty())
+<section class="panel attack-path-panel">
+    <div class="panel-head">
+        <div>
+            <p class="eyebrow">Attacker Perspective</p>
+            <h2>Attack Path Replay</h2>
+            <p class="muted">Urutan di bawah menunjukkan bagaimana boundary gagal dari titik masuk sampai protected resource tercapai. Replay hanya berasal dari assessment target yang sudah diverifikasi dan menggunakan request GET read-only.</p>
+        </div>
+        <span class="pill">{{ $attackPaths->count() }} attack paths</span>
+    </div>
+
+    <div class="attack-path-list">
+        @foreach($attackPaths as $item)
+            @php($path = $item['path'])
+            @php($finding = $item['finding'])
+            <article class="attack-path-card {{ $finding->severity }}">
+                <div class="attack-path-head">
+                    <div>
+                        <span class="severity {{ $finding->severity }}">{{ strtoupper($finding->severity) }}</span>
+                        <span class="pill">{{ str_replace('_', ' ', $finding->module) }}</span>
+                    </div>
+                    <code>GET {{ $path['target'] ?? '/' }}</code>
+                </div>
+                <h3>{{ $path['entry'] ?? 'Unknown Entry' }} → {{ $path['outcome'] ?? 'Protected Resource Reached' }}</h3>
+
+                <div class="attack-path-flow">
+                    @foreach(($path['steps'] ?? []) as $index => $step)
+                        <div class="attack-step {{ $step['state'] ?? 'pass' }}">
+                            <span>{{ $index + 1 }}</span>
+                            <div>
+                                <small>{{ strtoupper($step['state'] ?? 'step') }}</small>
+                                <strong>{{ $step['label'] ?? 'Step' }}</strong>
+                            </div>
+                        </div>
+                        @if(!$loop->last)<i class="attack-arrow">↓</i>@endif
+                    @endforeach
+                </div>
+
+                <div class="attack-path-impact">
+                    <strong>What this means</strong>
+                    <p>{{ $finding->description }}</p>
+                </div>
+            </article>
+        @endforeach
+    </div>
+</section>
+@endif
+
 <section class="panel auth-security-panel">
     <div class="panel-head">
         <div>
@@ -15,6 +77,11 @@
         </div>
     @endif
 
+    <div class="secret-warning guest-replay-note">
+        <strong>Guest / No Account Replay is automatic</strong>
+        <p>Jika Laravel Agent atau access-control inventory tersedia, audit otomatis mencoba protected route tanpa credential/session/token. Untuk API token routes, scanner juga mencoba satu bearer token sintetis yang sengaja invalid. Tidak ada auth bypass payload, token forging, credential guessing, atau mutation request.</p>
+    </div>
+
     <div class="auth-config-grid">
         <div class="auth-config-card">
             <h3>1. Add Test Identity</h3>
@@ -22,8 +89,8 @@
             <form method="POST" action="{{ route('sessions.identities.store', $session) }}" class="auth-form">
                 @csrf
                 <div class="form-grid two">
-                    <label><span>Identity Label</span><input name="label" placeholder="Student Test" required></label>
-                    <label><span>Expected Role</span><input name="expected_role" placeholder="student"></label>
+                    <label><span>Identity Label</span><input name="label" placeholder="Low Privilege Test User" required></label>
+                    <label><span>Expected Role</span><input name="expected_role" placeholder="standard_user"></label>
                 </div>
                 <div class="form-grid two">
                     <label>
@@ -43,7 +110,7 @@
                         <label><span>Password Field</span><input name="password_field" value="password" placeholder="password"></label>
                     </div>
                     <div class="form-grid two">
-                        <label><span>Username / Email</span><input name="username" autocomplete="off" placeholder="student-test@example.com"></label>
+                        <label><span>Username / Email</span><input name="username" autocomplete="off" placeholder="security-test@example.com"></label>
                         <label><span>Password</span><input type="password" name="password" autocomplete="new-password" placeholder="Test account password"></label>
                     </div>
                 </div>
@@ -79,7 +146,7 @@
                         </select>
                     </label>
                     <div class="form-grid two">
-                        <label><span>Rule Label</span><input name="label" placeholder="Admin User Management" required></label>
+                        <label><span>Rule Label</span><input name="label" placeholder="Privileged User Management" required></label>
                         <label>
                             <span>Test Type</span>
                             <select name="kind">
@@ -98,7 +165,7 @@
                     </label>
                     <label class="field-block">
                         <span>Business Context</span>
-                        <textarea name="business_context" rows="3" placeholder="Contoh: Student tidak boleh membuka manajemen user admin. Untuk IDOR: order 9821 dimiliki user B, sedangkan identity ini adalah user A."></textarea>
+                        <textarea name="business_context" rows="3" placeholder="Contoh: standard user tidak boleh membuka manajemen user. Untuk IDOR: resource ini dimiliki User B sedangkan identity yang diuji adalah User A."></textarea>
                         <small>Konteks ini dipakai report agar risiko mudah dipahami developer, auditor, dan manajemen.</small>
                     </label>
                     <div class="secret-warning">
