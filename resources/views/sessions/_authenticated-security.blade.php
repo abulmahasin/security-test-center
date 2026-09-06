@@ -36,9 +36,10 @@
                     <label><span>Success / Verification Path</span><input name="success_path" value="/" placeholder="/dashboard"></label>
                 </div>
                 <div id="form-auth-fields">
-                    <div class="form-grid two">
+                    <div class="form-grid three">
                         <label><span>Login Path</span><input name="login_path" value="/login" placeholder="/login"></label>
                         <label><span>Username Field</span><input name="username_field" value="email" placeholder="email"></label>
+                        <label><span>Password Field</span><input name="password_field" value="password" placeholder="password"></label>
                     </div>
                     <div class="form-grid two">
                         <label><span>Username / Email</span><input name="username" autocomplete="off" placeholder="student-test@example.com"></label>
