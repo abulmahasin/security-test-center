@@ -84,6 +84,16 @@ class SecuritySession extends Model
         return $this->hasMany(SecurityLog::class)->latest('id');
     }
 
+    public function identities(): HasMany
+    {
+        return $this->hasMany(SecurityIdentity::class);
+    }
+
+    public function accessRules(): HasMany
+    {
+        return $this->hasMany(SecurityAccessRule::class);
+    }
+
     public function isVerified(): bool
     {
         return $this->verified_at !== null;
