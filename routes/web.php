@@ -1,8 +1,10 @@
 <?php
 
+use App\Http\Controllers\AccountSecurityController;
 use App\Http\Controllers\AuthenticatedSecurityController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\LaravelAgentController;
 use App\Http\Controllers\SecurityFindingController;
 use App\Http\Controllers\SecuritySessionController;
 use Illuminate\Support\Facades\Route;
@@ -30,6 +32,12 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/identities/{identity}', [AuthenticatedSecurityController::class, 'destroyIdentity'])->name('identities.destroy');
     Route::post('/sessions/{session}/access-rules', [AuthenticatedSecurityController::class, 'storeRule'])->name('sessions.access-rules.store');
     Route::delete('/access-rules/{rule}', [AuthenticatedSecurityController::class, 'destroyRule'])->name('access-rules.destroy');
+
+    Route::post('/sessions/{session}/account-tests', [AccountSecurityController::class, 'store'])->name('sessions.account-tests.store');
+    Route::delete('/account-tests/{test}', [AccountSecurityController::class, 'destroy'])->name('account-tests.destroy');
+
+    Route::post('/sessions/{session}/laravel-agent-manifests', [LaravelAgentController::class, 'store'])->name('sessions.agent-manifests.store');
+    Route::delete('/laravel-agent-manifests/{manifest}', [LaravelAgentController::class, 'destroy'])->name('agent-manifests.destroy');
 
     Route::patch('/findings/{finding}/status', [SecurityFindingController::class, 'updateStatus'])->name('findings.status');
 });
