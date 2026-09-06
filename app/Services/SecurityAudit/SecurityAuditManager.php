@@ -2,6 +2,7 @@
 
 namespace App\Services\SecurityAudit;
 
+use App\Services\SecurityAudit\Scanners\AccountCompromiseScanner;
 use App\Services\SecurityAudit\Scanners\AuthenticatedAccessScanner;
 use App\Services\SecurityAudit\Scanners\CookieScanner;
 use App\Services\SecurityAudit\Scanners\CorsScanner;
@@ -9,6 +10,7 @@ use App\Services\SecurityAudit\Scanners\DnsPostureScanner;
 use App\Services\SecurityAudit\Scanners\ExposureScanner;
 use App\Services\SecurityAudit\Scanners\HeadersScanner;
 use App\Services\SecurityAudit\Scanners\HttpMethodsScanner;
+use App\Services\SecurityAudit\Scanners\LaravelAgentScanner;
 use App\Services\SecurityAudit\Scanners\LatencyScanner;
 use App\Services\SecurityAudit\Scanners\LoadResilienceScanner;
 use App\Services\SecurityAudit\Scanners\RateLimitScanner;
@@ -33,6 +35,8 @@ class SecurityAuditManager
         private readonly DnsPostureScanner $dnsPosture,
         private readonly SensitiveFilesScanner $sensitiveFiles,
         private readonly AuthenticatedAccessScanner $authenticatedAccess,
+        private readonly AccountCompromiseScanner $accountCompromise,
+        private readonly LaravelAgentScanner $laravelAgent,
     ) {
     }
 
@@ -52,6 +56,8 @@ class SecurityAuditManager
             'dns_posture' => $this->dnsPosture,
             'sensitive_files' => $this->sensitiveFiles,
             'authenticated_access' => $this->authenticatedAccess,
+            'account_compromise' => $this->accountCompromise,
+            'laravel_agent' => $this->laravelAgent,
             default => throw new InvalidArgumentException("Unknown security module: {$module}"),
         };
     }
