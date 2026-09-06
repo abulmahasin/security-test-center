@@ -52,30 +52,23 @@ class RunSecurityAudit implements ShouldQueue
             $this->log($session, 'info', 'Audit started', ['modules' => $modules]);
 
             foreach ($modules as $index => $module) {
-                $progress = min(90, 5 + (int) floor(($index / $total) * 84));
+                $progress = min(88, 5 + (int) floor(($index / $total) * 82));
 
                 $session->update([
                     'progress' => $progress,
                     'current_stage' => "Running {$module}",
                 ]);
 
-                $this->log($session, 'info', "Running module: {$module}");
-                $results = $manager->scanner($module)->scan($session);
+                $this->runModule($manager, $session, $module);
+            }
 
-                foreach ($results as $result) {
-                    SecurityFinding::create([
-                        'security_session_id' => $session->id,
-                        'module' => $module,
-                        'severity' => $result['severity'],
-                        'title' => $result['title'],
-                        'description' => $result['description'],
-                        'evidence' => $result['evidence'] ?? null,
-                        'remediation' => $result['remediation'],
-                        'status' => 'open',
-                    ]);
-                }
+            if (in_array('laravel_agent', $modules, true) || in_array('authenticated_access', $modules, true)) {
+                $session->update([
+                    'progress' => 90,
+                    'current_stage' => 'Replaying Guest / No Account authentication boundaries',
+                ]);
 
-                $this->log($session, 'info', "Module completed: {$module}", ['findings' => count($results)]);
+                $this->runModule($manager, $session, 'authentication_boundary');
             }
 
             $session->update(['progress' => 93, 'current_stage' => 'Calculating risk score']);
@@ -112,6 +105,27 @@ class RunSecurityAudit implements ShouldQueue
 
             $this->log($session, 'error', 'Audit failed', ['message' => $e->getMessage()]);
         }
+    }
+
+    private function runModule(SecurityAuditManager $manager, SecuritySession $session, string $module): void
+    {
+        $this->log($session, 'info', "Running module: {$module}");
+        $results = $manager->scanner($module)->scan($session);
+
+        foreach ($results as $result) {
+            SecurityFinding::create([
+                'security_session_id' => $session->id,
+                'module' => $module,
+                'severity' => $result['severity'],
+                'title' => $result['title'],
+                'description' => $result['description'],
+                'evidence' => $result['evidence'] ?? null,
+                'remediation' => $result['remediation'],
+                'status' => 'open',
+            ]);
+        }
+
+        $this->log($session, 'info', "Module completed: {$module}", ['findings' => count($results)]);
     }
 
     private function log(SecuritySession $session, string $level, string $message, array $meta = []): void
