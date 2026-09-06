@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AuthenticatedSecurityController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SecurityFindingController;
@@ -24,6 +25,11 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/sessions/{session}/run', [SecuritySessionController::class, 'run'])->name('sessions.run');
     Route::get('/sessions/{session}/status', [SecuritySessionController::class, 'status'])->name('sessions.status');
     Route::get('/sessions/{session}/report.json', [SecuritySessionController::class, 'report'])->name('sessions.report');
+
+    Route::post('/sessions/{session}/identities', [AuthenticatedSecurityController::class, 'storeIdentity'])->name('sessions.identities.store');
+    Route::delete('/identities/{identity}', [AuthenticatedSecurityController::class, 'destroyIdentity'])->name('identities.destroy');
+    Route::post('/sessions/{session}/access-rules', [AuthenticatedSecurityController::class, 'storeRule'])->name('sessions.access-rules.store');
+    Route::delete('/access-rules/{rule}', [AuthenticatedSecurityController::class, 'destroyRule'])->name('access-rules.destroy');
 
     Route::patch('/findings/{finding}/status', [SecurityFindingController::class, 'updateStatus'])->name('findings.status');
 });
