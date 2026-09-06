@@ -12,6 +12,7 @@ use App\Services\SecurityAudit\Scanners\LatencyScanner;
 use App\Services\SecurityAudit\Scanners\LoadResilienceScanner;
 use App\Services\SecurityAudit\Scanners\RateLimitScanner;
 use App\Services\SecurityAudit\Scanners\SecurityTxtScanner;
+use App\Services\SecurityAudit\Scanners\SensitiveFilesScanner;
 use App\Services\SecurityAudit\Scanners\TlsScanner;
 use InvalidArgumentException;
 
@@ -29,6 +30,7 @@ class SecurityAuditManager
         private readonly SecurityTxtScanner $securityTxt,
         private readonly HttpMethodsScanner $httpMethods,
         private readonly DnsPostureScanner $dnsPosture,
+        private readonly SensitiveFilesScanner $sensitiveFiles,
     ) {
     }
 
@@ -46,6 +48,7 @@ class SecurityAuditManager
             'security_txt' => $this->securityTxt,
             'http_methods' => $this->httpMethods,
             'dns_posture' => $this->dnsPosture,
+            'sensitive_files' => $this->sensitiveFiles,
             default => throw new InvalidArgumentException("Unknown security module: {$module}"),
         };
     }
