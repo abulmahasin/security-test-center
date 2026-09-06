@@ -43,14 +43,14 @@
             <div>
                 <p class="eyebrow">Step 2</p>
                 <h2>Security Coverage</h2>
-                <p class="muted">Deep Safe menggabungkan passive posture checks dengan controlled load yang dibatasi server.</p>
+                <p class="muted">Pilih modul sesuai kebutuhan. Semua active checks tetap dibatasi dan hanya berjalan pada target yang sudah diverifikasi.</p>
             </div>
         </div>
 
         <input type="hidden" name="profile" id="profile-input" value="{{ old('profile', 'balanced') }}">
         <div class="profile-grid">
             <button type="button" class="profile-card" data-profile="quick"><strong>Quick</strong><span>Transport + browser security baseline.</span></button>
-            <button type="button" class="profile-card active" data-profile="balanced"><strong>Balanced</strong><span>Recommended continuous security coverage.</span></button>
+            <button type="button" class="profile-card active" data-profile="balanced"><strong>Balanced</strong><span>Recommended security coverage termasuk sensitive file exposure.</span></button>
             <button type="button" class="profile-card" data-profile="deep"><strong>Deep Safe</strong><span>Semua modul termasuk controlled resilience.</span></button>
         </div>
 
@@ -58,10 +58,16 @@
             @foreach($moduleOptions as $key => [$title, $description])
                 <label class="module-card">
                     <input type="checkbox" name="modules[]" value="{{ $key }}" data-module="{{ $key }}"
-                        @checked(in_array($key, old('modules', ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture']), true))>
+                        @checked(in_array($key, old('modules', ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files']), true))>
                     <span><strong>{{ $title }}</strong><small>{{ $description }}</small></span>
                 </label>
             @endforeach
+        </div>
+
+        <div class="risk-callout">
+            <strong>Sensitive File Exposure Scanner</strong>
+            <p>Modul ini memeriksa file yang seharusnya tidak dapat dibaca publik, misalnya <code>.env</code>, <code>.git/config</code>, Laravel log, SQLite database, backup SQL/ZIP, <code>.npmrc</code>, Composer <code>auth.json</code>, dan <code>phpinfo.php</code>.</p>
+            <p><b>Privasi:</b> scanner hanya membaca sampel kecil untuk mengonfirmasi signature file dan <b>tidak menyimpan isi secret</b> ke database/report. Evidence hanya berisi path, HTTP status, tipe signature, dan status redaction.</p>
         </div>
     </section>
 
@@ -69,22 +75,38 @@
         <div class="panel-head">
             <div>
                 <p class="eyebrow">Step 3</p>
-                <h2>Continuous Monitoring</h2>
-                <p class="muted">Scheduled run akan memverifikasi ulang proof-of-control sebelum setiap scan dan membuat session baru agar history tetap utuh.</p>
+                <h2>Auto Monitoring</h2>
+                <p class="muted">Default OFF. Aktifkan hanya jika Anda ingin sistem menjalankan assessment otomatis secara berkala. Pengaturan ini dapat diubah atau dimatikan lagi dari halaman session.</p>
             </div>
         </div>
 
-        <div class="form-grid two">
-            <label>
-                <span>Audit Schedule</span>
-                <select name="schedule_frequency">
-                    <option value="none" @selected(old('schedule_frequency','none') === 'none')>Manual only</option>
-                    <option value="daily" @selected(old('schedule_frequency') === 'daily')>Daily</option>
-                    <option value="weekly" @selected(old('schedule_frequency') === 'weekly')>Weekly</option>
-                    <option value="monthly" @selected(old('schedule_frequency') === 'monthly')>Monthly</option>
-                </select>
-                <small>Laravel scheduler harus aktif pada deployment production.</small>
-            </label>
+        <label class="monitoring-switch">
+            <input type="checkbox" name="monitoring_enabled" value="1" id="monitoring-enabled" @checked(old('monitoring_enabled'))>
+            <span>
+                <strong>Enable Auto Monitoring</strong>
+                <small>System akan memverifikasi ulang ownership sebelum setiap run. Jika verifikasi gagal, run tidak dijalankan.</small>
+            </span>
+        </label>
+
+        <div id="monitoring-config" class="monitoring-config {{ old('monitoring_enabled') ? '' : 'disabled-box' }}">
+            <div class="form-grid two">
+                <label>
+                    <span>Run Every</span>
+                    <input type="number" min="1" max="8760" name="monitoring_interval_value" value="{{ old('monitoring_interval_value', 24) }}">
+                </label>
+                <label>
+                    <span>Interval Unit</span>
+                    <select name="monitoring_interval_unit">
+                        <option value="hours" @selected(old('monitoring_interval_unit', 'hours') === 'hours')>Hour(s)</option>
+                        <option value="days" @selected(old('monitoring_interval_unit') === 'days')>Day(s)</option>
+                        <option value="weeks" @selected(old('monitoring_interval_unit') === 'weeks')>Week(s)</option>
+                    </select>
+                </label>
+            </div>
+            <small>Minimal 1 jam, maksimal 1 tahun. Contoh: 6 hours, 1 day, 3 days, 1 week, atau 4 weeks.</small>
+        </div>
+
+        <div class="form-grid two advanced-gap">
             <label>
                 <span>Rate Limit Endpoint</span>
                 <input name="rate_limit_path" value="{{ old('rate_limit_path', '/login') }}" placeholder="/login">
@@ -118,18 +140,24 @@
 (() => {
     const presets = {
         quick: ['headers','tls','cookies','cors','security_txt'],
-        balanced: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture'],
-        deep: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','load_resilience'],
+        balanced: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files'],
+        deep: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files','load_resilience'],
     };
 
     const profileInput = document.getElementById('profile-input');
     const buttons = [...document.querySelectorAll('[data-profile]')];
     const modules = [...document.querySelectorAll('[data-module]')];
     const loadBox = document.getElementById('load-config');
+    const monitoringEnabled = document.getElementById('monitoring-enabled');
+    const monitoringConfig = document.getElementById('monitoring-config');
 
     function updateLoadBox() {
         const load = document.querySelector('[data-module="load_resilience"]');
         loadBox.classList.toggle('disabled-box', !load?.checked);
+    }
+
+    function updateMonitoringBox() {
+        monitoringConfig.classList.toggle('disabled-box', !monitoringEnabled.checked);
     }
 
     function activate(profile) {
@@ -145,8 +173,10 @@
         buttons.forEach(btn => btn.classList.remove('active'));
         updateLoadBox();
     }));
+    monitoringEnabled.addEventListener('change', updateMonitoringBox);
 
     updateLoadBox();
+    updateMonitoringBox();
 })();
 </script>
 @endsection
