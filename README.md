@@ -21,18 +21,35 @@ Security Test Center tidak lagi sekadar menjalankan scan satu kali. Setiap compl
 - Regression counter.
 - New/resolved finding metrics.
 
-### Continuous monitoring
+### Flexible Auto Monitoring
 
-Session dapat dijadikan template monitoring:
+Auto monitoring bersifat **opt-in** dan default-nya OFF.
 
-- Manual
-- Daily
-- Weekly
-- Monthly
+User dapat:
 
-Sebelum scheduled run, platform **memverifikasi ulang proof-of-control**. Jika verification file sudah hilang atau berubah, scheduled audit tidak dijalankan.
+- menjalankan assessment manual saja,
+- mengaktifkan monitoring kapan saja,
+- menentukan interval sendiri dalam jam, hari, atau minggu,
+- mengubah interval tanpa membuat session baru,
+- mematikan monitoring kapan saja tanpa menghapus history.
 
-Scheduler membuat session baru untuk setiap run sehingga history, baseline, evidence, dan trend tidak ditimpa.
+Batas interval:
+
+- minimum: 1 jam,
+- maksimum: 1 tahun.
+
+Contoh yang valid:
+
+- setiap 6 jam,
+- setiap 12 jam,
+- setiap 1 hari,
+- setiap 3 hari,
+- setiap 1 minggu,
+- setiap 4 minggu.
+
+Sebelum setiap auto-run, platform **memverifikasi ulang proof-of-control**. Jika verification file sudah hilang atau berubah, scheduled audit tidak dijalankan dan run ditunda sampai ownership dapat diverifikasi lagi.
+
+Setiap auto-run membuat session baru sehingga history, baseline, evidence, dan trend tidak ditimpa.
 
 ### Security modules
 
@@ -46,7 +63,49 @@ Scheduler membuat session baru untuk setiap run sehingga history, baseline, evid
 - RFC 9116 `security.txt`
 - Passive HTTP Method Exposure
 - Passive DNS Posture
+- **Sensitive File Exposure**
 - **DDoS Resilience Simulation** dalam mode controlled-load dengan hard safety caps
+
+### Sensitive File Exposure Scanner
+
+Scanner ini dirancang untuk mengetahui apakah file yang seharusnya private ternyata dapat dibaca melalui web server.
+
+Daftar pemeriksaan saat ini mencakup:
+
+- `/.env`
+- `/.git/config`
+- `/storage/logs/laravel.log`
+- `/database/database.sqlite`
+- `/backup.sql`
+- `/backup.zip`
+- `/.npmrc`
+- `/auth.json`
+- `/phpinfo.php`
+
+Scanner melakukan request hanya pada **fixed allowlist path** tersebut dan membaca sampel kecil maksimal 2048 byte untuk mencocokkan signature file.
+
+Isi file sensitif **tidak disimpan** ke database maupun report. Evidence hanya menyimpan:
+
+- path,
+- HTTP status,
+- tipe signature yang cocok,
+- ukuran sampel maksimum,
+- flag `content_redacted=true`.
+
+Contoh risiko yang dijelaskan report:
+
+- `.env` → kebocoran `APP_KEY`, database credential, API token, mail/storage secret.
+- `.git/config` → source-code reconstruction dan kebocoran history/config repository.
+- Laravel log → stack trace, path internal, query, token, dan data request.
+- SQLite/database backup → kebocoran data aplikasi dalam skala besar.
+- `.npmrc` / `auth.json` → token private package/repository.
+- `phpinfo.php` → fingerprint runtime, extension, path, dan environment variable.
+
+Setiap finding menampilkan format yang mudah dibaca:
+
+1. **Risiko / Dampak**
+2. **Evidence (redacted)**
+3. **Solusi / Recommended Remediation**
 
 ### Safety model
 
@@ -59,6 +118,7 @@ Platform sengaja **tidak** menyediakan:
 - raw packet attacks
 - credential attacks
 - exploit payload generator
+- arbitrary file downloader
 - target-verification bypass
 
 Controlled-load hanya dapat berjalan pada target yang sudah membuktikan kontrol melalui:
@@ -95,7 +155,7 @@ SECURITY_TEST_LOAD_MAX_REQUESTS=600
 - SQLite/MySQL/PostgreSQL
 - PHP OpenSSL
 - Queue worker
-- Laravel scheduler untuk continuous monitoring
+- Laravel scheduler untuk auto monitoring
 
 ## Install
 
@@ -116,9 +176,9 @@ Queue worker:
 php artisan queue:work --tries=1 --timeout=180
 ```
 
-## Continuous monitoring scheduler
+## Auto monitoring scheduler
 
-Laravel scheduler harus berjalan setiap menit pada production:
+Laravel scheduler harus berjalan setiap menit pada production agar custom interval dapat dieksekusi mendekati waktu yang ditentukan:
 
 ```cron
 * * * * * cd /path/to/security-test-center && php artisan schedule:run >> /dev/null 2>&1
@@ -136,7 +196,7 @@ Dispatcher internal:
 php artisan security:dispatch-scheduled
 ```
 
-Dispatcher hanya memproses due templates dan melakukan proof-of-control re-verification sebelum membuat scheduled assessment baru.
+Dispatcher hanya memproses session dengan `monitoring_enabled=true`, due time sudah tercapai, target masih verified, dan session template tidak sedang running.
 
 ## Testing private/internal applications
 
@@ -173,6 +233,7 @@ app/
 ├── Models/
 └── Services/SecurityAudit/
     ├── Scanners/
+    │   └── SensitiveFilesScanner.php
     ├── HttpProbe.php
     ├── TargetGuard.php
     ├── VerificationService.php
@@ -189,7 +250,7 @@ GitHub Actions menjalankan:
 - Laravel application preparation.
 - Database migrations.
 - PHP syntax validation.
-- Automated tests including TargetGuard dan posture baseline/regression engine.
+- Automated tests termasuk TargetGuard, posture baseline/regression engine, dan flexible monitoring controls.
 
 ## Scope
 
