@@ -94,6 +94,11 @@ class SecuritySession extends Model
         return $this->hasMany(SecurityAccessRule::class);
     }
 
+    public function guestBoundaries(): HasMany
+    {
+        return $this->hasMany(SecurityGuestBoundary::class);
+    }
+
     public function accountTests(): HasMany
     {
         return $this->hasMany(SecurityAccountTest::class);
