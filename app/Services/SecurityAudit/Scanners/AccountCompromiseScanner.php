@@ -30,7 +30,7 @@ class AccountCompromiseScanner implements Scanner
                 'info',
                 'Account Compromise Lab belum dikonfigurasi',
                 'Belum ada bounded account-security test pada session ini.',
-                'Tambahkan test identity khusus lalu konfigurasi Login Enumeration atau Login Throttling / Lockout. Scanner tidak melakukan password guessing atau credential theft.'
+                'Tambahkan dedicated test identity lalu konfigurasi Login Enumeration, Login Throttling, Login Surface, atau Password Recovery Surface. Scanner tidak melakukan password guessing atau credential theft.'
             )];
         }
 
@@ -40,6 +40,8 @@ class AccountCompromiseScanner implements Scanner
             $findings[] = match ($test->kind) {
                 'login_enumeration' => $this->loginEnumeration($session, $test),
                 'login_throttling' => $this->loginThrottling($session, $test),
+                'login_surface' => $this->loginSurface($session, $test),
+                'password_reset_surface' => $this->passwordResetSurface($session, $test),
                 default => Finding::make(
                     'low',
                     "Account security test tidak dikenal: {$test->label}",
@@ -70,7 +72,7 @@ class AccountCompromiseScanner implements Scanner
             $known = $this->accounts->invalidLoginAttempt($session, $identity, $identity->username);
             $missingUsername = $this->accounts->syntheticUsername($identity);
             $missing = $this->accounts->invalidLoginAttempt($session, $identity, $missingUsername);
-        } catch (Throwable $e) {
+        } catch (Throwable) {
             return Finding::make(
                 'medium',
                 "Login enumeration test gagal: {$test->label}",
@@ -189,6 +191,92 @@ class AccountCompromiseScanner implements Scanner
             "Tidak ada sinyal login throttling awal: {$test->label}",
             'Tiga invalid attempts terkontrol tidak menunjukkan 429, Retry-After, rate-limit depletion, atau perubahan denial. Ini bukan bukti brute-force pasti dapat dilakukan, tetapi menunjukkan lapisan anti-automation tidak terlihat pada probe awal.',
             'Tambahkan per-account + per-IP rate limiting, exponential backoff, MFA untuk role sensitif, alerting failed-login, dan protection terhadap credential stuffing. Validasi lagi dengan test account.',
+            $evidence
+        );
+    }
+
+    private function loginSurface(SecuritySession $session, SecurityAccountTest $test): array
+    {
+        $identity = $test->identity;
+        $path = $test->path ?: ($identity?->login_path ?: '/login');
+
+        try {
+            $surface = $this->accounts->inspectSurface($session, $path);
+        } catch (Throwable) {
+            return Finding::make(
+                'medium',
+                "Login surface tidak dapat diperiksa: {$test->label}",
+                'GET-only inspection terhadap login page gagal.',
+                'Periksa path login dan availability target.',
+                $this->evidence($test, 'request_failed')
+            );
+        }
+
+        $evidence = json_encode(array_merge($surface, [
+            'test' => 'login_surface',
+            'path' => $path,
+            'side_effects' => false,
+            'credentials_redacted' => true,
+        ]), JSON_UNESCAPED_SLASHES);
+
+        if ($surface['status'] >= 200 && $surface['status'] < 300 && $surface['form_count'] > 0 && ! $surface['csrf_present']) {
+            return Finding::make(
+                'medium',
+                "Login form tanpa CSRF signal: {$test->label}",
+                'Login page terdeteksi memiliki form tetapi scanner tidak menemukan CSRF hidden token atau csrf-token meta tag. Pada session-based web login, kondisi ini dapat membuka risiko login CSRF atau menunjukkan proteksi request yang tidak terlihat dari markup.',
+                'Pastikan login POST memakai CSRF protection/framework middleware. Jika memakai mekanisme non-CSRF seperti stateless API, dokumentasikan dan validasi origin/cookie policy yang sesuai.',
+                $evidence
+            );
+        }
+
+        return Finding::make(
+            'info',
+            "Login Surface Baseline: {$test->label}",
+            'Login page berhasil diperiksa secara GET-only. Metadata form, CSRF signal, dan autocomplete posture direkam tanpa menyimpan HTML response.',
+            'Pertahankan CSRF protection, password-manager-compatible autocomplete, HTTPS, generic login errors, dan MFA untuk role sensitif.',
+            $evidence
+        );
+    }
+
+    private function passwordResetSurface(SecuritySession $session, SecurityAccountTest $test): array
+    {
+        $path = $test->path ?: '/forgot-password';
+
+        try {
+            $surface = $this->accounts->inspectSurface($session, $path);
+        } catch (Throwable) {
+            return Finding::make(
+                'low',
+                "Password recovery surface tidak dapat diperiksa: {$test->label}",
+                'GET-only inspection terhadap recovery page gagal atau endpoint tidak tersedia.',
+                'Pastikan path recovery sesuai konfigurasi aplikasi. Tidak ada reset email atau token yang dikirim oleh test ini.',
+                $this->evidence($test, 'request_failed')
+            );
+        }
+
+        $evidence = json_encode(array_merge($surface, [
+            'test' => 'password_reset_surface',
+            'path' => $path,
+            'reset_request_sent' => false,
+            'email_sent' => false,
+            'response_body_stored' => false,
+        ]), JSON_UNESCAPED_SLASHES);
+
+        if ($surface['status'] >= 200 && $surface['status'] < 300 && $surface['form_count'] > 0 && ! $surface['csrf_present']) {
+            return Finding::make(
+                'medium',
+                "Password recovery form tanpa CSRF signal: {$test->label}",
+                'Recovery page memiliki form tetapi tidak menunjukkan CSRF token pada markup yang diperiksa. Recovery workflow adalah jalur account takeover yang sensitif dan harus dilindungi setara dengan login.',
+                'Aktifkan CSRF protection pada reset-request form, gunakan generic response untuk email terdaftar/tidak terdaftar, throttle request reset, token sekali pakai berumur pendek, dan invalidasi token lama setelah password berubah.',
+                $evidence
+            );
+        }
+
+        return Finding::make(
+            'info',
+            "Password Recovery Surface Baseline: {$test->label}",
+            'Recovery page diperiksa secara pasif. Scanner tidak mengirim permintaan reset, email, OTP, atau token.',
+            'Pastikan recovery response tidak melakukan account enumeration, request di-rate-limit, reset token single-use/short-lived, dan session lama diinvalidasi setelah password berubah.',
             $evidence
         );
     }
