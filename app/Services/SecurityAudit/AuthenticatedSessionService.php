@@ -38,6 +38,26 @@ class AuthenticatedSessionService
             ];
         }
 
+        if ($identity->auth_type === 'cookie') {
+            $cookie = $identity->sessionCookie();
+
+            if (blank($cookie)) {
+                return ['client' => $this->client($session->target_url), 'authenticated' => false, 'status' => null, 'reason' => 'Test session cookie tidak tersedia.'];
+            }
+
+            $client = $this->client($session->target_url)->withHeaders(['Cookie' => $cookie]);
+            $probe = $this->safeGet($client, $this->url($session, $identity->success_path));
+
+            return [
+                'client' => $client,
+                'authenticated' => $this->isAllowedResponse($probe),
+                'status' => $probe->status(),
+                'reason' => $this->isAllowedResponse($probe)
+                    ? 'Provided dedicated test-session cookie is accepted by target.'
+                    : 'Provided test-session cookie tidak menghasilkan authenticated access.',
+            ];
+        }
+
         $jar = new CookieJar();
         $loginUrl = $this->url($session, $identity->login_path);
         $successUrl = $this->url($session, $identity->success_path);
@@ -92,7 +112,7 @@ class AuthenticatedSessionService
             ->connectTimeout(min(5, config('security_test.http_timeout')))
             ->withOptions($options)
             ->withHeaders([
-                'User-Agent' => 'Security-Test-Center/1.0 Authenticated-Authorized-Audit',
+                'User-Agent' => 'Security-Test-Center/2.0 Authenticated-Authorized-Audit',
                 'Accept' => 'text/html,application/json;q=0.9,*/*;q=0.8',
             ]);
     }
