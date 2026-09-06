@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SecurityAccessRule;
 use App\Models\SecurityAgentManifest;
+use App\Models\SecurityIdentity;
 use App\Models\SecuritySession;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -86,6 +88,71 @@ class LaravelAgentController extends Controller
         ]);
 
         return back()->with('success', 'Laravel Agent manifest berhasil diimport dan siap dianalisis pada audit berikutnya.');
+    }
+
+    public function generateRules(Request $request, int $session, int $manifest): RedirectResponse
+    {
+        $session = $this->ownedSession($session);
+        abort_unless($session->isVerified(), 422, 'Target harus diverifikasi sebelum matrix dibuat.');
+
+        $data = $request->validate([
+            'security_identity_id' => ['required', 'integer'],
+        ]);
+
+        $manifestRecord = SecurityAgentManifest::query()
+            ->where('security_session_id', $session->id)
+            ->findOrFail($manifest);
+
+        $identity = SecurityIdentity::query()
+            ->where('security_session_id', $session->id)
+            ->findOrFail($data['security_identity_id']);
+
+        $role = strtolower((string) $identity->expected_role);
+        if ($role !== '' && preg_match('/(^|[_\-\s])(super[ _-]?admin|admin|administrator)($|[_\-\s])/i', $role)) {
+            return back()->withErrors([
+                'matrix' => 'Auto DENIED matrix ditujukan untuk test identity role rendah/non-admin. Untuk akun admin, buat ALLOWED rule secara eksplisit.',
+            ]);
+        }
+
+        $routes = collect(($manifestRecord->manifest ?? [])['routes'] ?? [])
+            ->filter(fn ($route) => is_array($route))
+            ->filter(function (array $route): bool {
+                $uri = '/'.ltrim((string) ($route['uri'] ?? ''), '/');
+                $methods = collect($route['methods'] ?? [])->map(fn ($m) => strtoupper((string) $m));
+                $static = ! str_contains($uri, '{') && ! str_contains($uri, '}');
+                $readOnly = $methods->isEmpty() || $methods->contains(fn ($method) => in_array($method, ['GET', 'HEAD'], true));
+                $sensitive = preg_match('#^/(admin|administrator|management|settings|users|roles|permissions|telescope|horizon|pulse)(/|$)#i', $uri) === 1;
+
+                return $static && $readOnly && $sensitive;
+            })
+            ->take(100);
+
+        $created = 0;
+        foreach ($routes as $route) {
+            $path = '/'.ltrim((string) ($route['uri'] ?? ''), '/');
+            $routeName = trim((string) ($route['name'] ?? ''));
+            $label = $routeName !== '' ? $routeName : $path;
+
+            $rule = SecurityAccessRule::firstOrCreate(
+                [
+                    'security_session_id' => $session->id,
+                    'security_identity_id' => $identity->id,
+                    'path' => $path,
+                    'expectation' => 'denied',
+                ],
+                [
+                    'label' => mb_substr('Auto: '.$label, 0, 160),
+                    'test_kind' => 'authorization',
+                    'business_context' => 'Auto-generated from Laravel Agent manifest as an administrative/sensitive read-only route. Low-privilege identity should not receive successful access.',
+                ],
+            );
+
+            if ($rule->wasRecentlyCreated) {
+                $created++;
+            }
+        }
+
+        return back()->with('success', "Authorization matrix generated: {$created} new DENIED rule(s) for {$identity->label}. Existing duplicates were preserved.");
     }
 
     public function destroy(int $manifest): RedirectResponse
