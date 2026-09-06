@@ -26,8 +26,8 @@ class AuthenticationBoundaryScanner implements Scanner
             return [Finding::make(
                 'info',
                 'Authentication Boundary belum memiliki protected-route inventory',
-                'Scanner tidak menemukan route statis GET/HEAD yang dapat dibuktikan sebagai protected resource dari Laravel Agent manifest atau authorization matrix.',
-                'Import Laravel Agent manifest atau tambahkan access-control rules. Setelah itu scanner dapat menguji route tersebut sebagai Guest tanpa credential/token dan merekam attack-path replay jika boundary gagal.'
+                'Scanner tidak menemukan route statis GET/HEAD yang dapat dibuktikan sebagai protected resource dari Guest Boundary, Laravel Agent manifest, atau authorization matrix.',
+                'Tambahkan Guest / No Account protected route secara manual, import Laravel Agent manifest, atau tambahkan access-control rule. Scanner kemudian dapat menguji route sebagai Guest tanpa credential/token.'
             )];
         }
 
@@ -103,7 +103,7 @@ class AuthenticationBoundaryScanner implements Scanner
                 'low',
                 'Authentication response inconclusive: '.$candidate['path'],
                 'Guest request menghasilkan HTTP '.$guest['status'].', sehingga route tidak dapat diklasifikasikan dengan pasti sebagai protected atau exposed.',
-                'Periksa behavior endpoint dan sesuaikan route/middleware bila status khusus ini memang disengaja.',
+                'Periksa behavior endpoint dan sesuaikan boundary rule bila status khusus ini memang disengaja.',
                 $this->evidence($candidate, $guest, 'inconclusive', 'guest')
             );
         }
@@ -133,6 +133,24 @@ class AuthenticationBoundaryScanner implements Scanner
     private function candidates(SecuritySession $session)
     {
         $routes = collect();
+
+        $session->loadMissing(['guestBoundaries', 'accessRules']);
+        foreach ($session->guestBoundaries->where('enabled', true) as $boundary) {
+            $path = '/'.ltrim((string) $boundary->path, '/');
+            if (str_contains($path, '{') || str_contains($path, '}')) {
+                continue;
+            }
+
+            $routes->push([
+                'path' => $path,
+                'source' => 'manual_guest_boundary',
+                'name' => $boundary->label,
+                'middleware' => [],
+                'token_protected' => $boundary->auth_mode === 'bearer',
+                'business_context' => $boundary->business_context,
+            ]);
+        }
+
         $manifest = SecurityAgentManifest::query()
             ->where('security_session_id', $session->id)
             ->latest('received_at')
@@ -172,10 +190,10 @@ class AuthenticationBoundaryScanner implements Scanner
                     || str_contains($item, 'jwt')
                     || $item === 'auth:api'
                 ),
+                'business_context' => null,
             ]);
         }
 
-        $session->loadMissing('accessRules');
         foreach ($session->accessRules->where('expectation', 'denied') as $rule) {
             $path = '/'.ltrim((string) $rule->path, '/');
             if (str_contains($path, '{') || str_contains($path, '}')) {
@@ -188,12 +206,13 @@ class AuthenticationBoundaryScanner implements Scanner
                 'name' => $rule->label,
                 'middleware' => [],
                 'token_protected' => str_starts_with($path, '/api/'),
+                'business_context' => $rule->business_context,
             ]);
         }
 
         return $routes
             ->filter(fn (array $route) => $route['path'] !== '/')
-            ->unique('path')
+            ->unique(fn (array $route) => $route['path'].'|'.($route['token_protected'] ? 'token' : 'session'))
             ->values();
     }
 
@@ -225,11 +244,12 @@ class AuthenticationBoundaryScanner implements Scanner
         $title = $result === 'invalid_token_accepted'
             ? 'Invalid token accepted by protected resource: '.$candidate['path']
             : 'Unauthenticated access to protected resource: '.$candidate['path'];
+        $context = ! empty($candidate['business_context']) ? ' Context: '.$candidate['business_context'] : '';
 
         return Finding::make(
             $severity,
             $title,
-            $description.' Dari sisi attacker, ini berarti resource dapat dicapai tanpa boundary autentikasi yang diharapkan.',
+            $description.' Dari sisi attacker, ini berarti resource dapat dicapai tanpa boundary autentikasi yang diharapkan.'.$context,
             'Terapkan authentication middleware server-side pada route/API, validasi token secara ketat, gunakan 401/403 untuk API, dan pastikan authorization tetap diperiksa setelah autentikasi. Tambahkan regression test untuk route ini.',
             $this->evidence($candidate, $response, $result, $entry)
         );
@@ -242,6 +262,7 @@ class AuthenticationBoundaryScanner implements Scanner
             'path' => $candidate['path'],
             'route_name' => $candidate['name'],
             'source' => $candidate['source'],
+            'business_context' => $candidate['business_context'] ?? null,
             'middleware' => $candidate['middleware'],
             'http_status' => $response['status'] ?? null,
             'content_type' => $response['content_type'] ?? null,
