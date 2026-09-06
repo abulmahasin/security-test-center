@@ -20,6 +20,7 @@ Route::middleware('auth')->group(function (): void {
     Route::post('/sessions', [SecuritySessionController::class, 'store'])->name('sessions.store');
     Route::get('/sessions/{session}', [SecuritySessionController::class, 'show'])->name('sessions.show');
     Route::post('/sessions/{session}/verify', [SecuritySessionController::class, 'verify'])->name('sessions.verify');
+    Route::patch('/sessions/{session}/monitoring', [SecuritySessionController::class, 'updateMonitoring'])->name('sessions.monitoring');
     Route::post('/sessions/{session}/run', [SecuritySessionController::class, 'run'])->name('sessions.run');
     Route::get('/sessions/{session}/status', [SecuritySessionController::class, 'status'])->name('sessions.status');
     Route::get('/sessions/{session}/report.json', [SecuritySessionController::class, 'report'])->name('sessions.report');
