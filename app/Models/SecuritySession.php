@@ -94,6 +94,16 @@ class SecuritySession extends Model
         return $this->hasMany(SecurityAccessRule::class);
     }
 
+    public function accountTests(): HasMany
+    {
+        return $this->hasMany(SecurityAccountTest::class);
+    }
+
+    public function agentManifests(): HasMany
+    {
+        return $this->hasMany(SecurityAgentManifest::class);
+    }
+
     public function isVerified(): bool
     {
         return $this->verified_at !== null;
