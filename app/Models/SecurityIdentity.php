@@ -16,6 +16,7 @@ class SecurityIdentity extends Model
         'auth_type',
         'login_path',
         'username_field',
+        'password_field',
         'username',
         'password_encrypted',
         'bearer_token_encrypted',
