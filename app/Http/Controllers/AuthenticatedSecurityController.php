@@ -15,6 +15,7 @@ class AuthenticatedSecurityController extends Controller
     public function storeIdentity(Request $request, int $session): RedirectResponse
     {
         $session = $this->ownedSession($session);
+        abort_unless($session->isVerified(), 422, 'Target harus diverifikasi sebelum authenticated security testing.');
 
         $data = $request->validate([
             'label' => ['required', 'string', 'max:120'],
@@ -70,12 +71,15 @@ class AuthenticatedSecurityController extends Controller
     public function storeRule(Request $request, int $session): RedirectResponse
     {
         $session = $this->ownedSession($session);
+        abort_unless($session->isVerified(), 422, 'Target harus diverifikasi sebelum authorization testing.');
 
         $data = $request->validate([
             'security_identity_id' => ['required', 'integer'],
             'label' => ['required', 'string', 'max:160'],
-            'path' => ['required', 'string', 'max:255', 'starts_with:/'],
+            'kind' => ['required', Rule::in(['authorization', 'idor'])],
+            'path' => ['required', 'string', 'max:1000', 'starts_with:/'],
             'expectation' => ['required', Rule::in(['allowed', 'denied'])],
+            'business_context' => ['nullable', 'string', 'max:3000'],
         ]);
 
         $identity = $session->identities()->findOrFail($data['security_identity_id']);
@@ -84,11 +88,15 @@ class AuthenticatedSecurityController extends Controller
             'security_session_id' => $session->id,
             'security_identity_id' => $identity->id,
             'label' => $data['label'],
+            'kind' => $data['kind'],
             'path' => $data['path'],
             'expectation' => $data['expectation'],
+            'business_context' => $data['business_context'] ?? null,
         ]);
 
-        return back()->with('success', 'Authorization boundary rule ditambahkan. Scanner hanya melakukan read-only GET pada path ini.');
+        return back()->with('success', $data['kind'] === 'idor'
+            ? 'IDOR/BOLA read-access rule ditambahkan.'
+            : 'Authorization boundary rule ditambahkan.');
     }
 
     public function destroyRule(int $rule): RedirectResponse
