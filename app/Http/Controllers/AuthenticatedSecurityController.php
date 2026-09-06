@@ -20,13 +20,14 @@ class AuthenticatedSecurityController extends Controller
         $data = $request->validate([
             'label' => ['required', 'string', 'max:120'],
             'expected_role' => ['nullable', 'string', 'max:80'],
-            'auth_type' => ['required', Rule::in(['form', 'bearer'])],
+            'auth_type' => ['required', Rule::in(['form', 'bearer', 'cookie'])],
             'login_path' => ['nullable', 'string', 'max:255', 'starts_with:/'],
             'username_field' => ['nullable', 'string', 'max:80'],
             'password_field' => ['nullable', 'string', 'max:80'],
             'username' => ['nullable', 'string', 'max:255'],
             'password' => ['nullable', 'string', 'max:4096'],
             'bearer_token' => ['nullable', 'string', 'max:8192'],
+            'session_cookie' => ['nullable', 'string', 'max:16384'],
             'success_path' => ['nullable', 'string', 'max:255', 'starts_with:/'],
         ]);
 
@@ -36,6 +37,10 @@ class AuthenticatedSecurityController extends Controller
 
         if ($data['auth_type'] === 'bearer' && blank($data['bearer_token'])) {
             return back()->withErrors(['identity' => 'Bearer authentication membutuhkan test token.']);
+        }
+
+        if ($data['auth_type'] === 'cookie' && blank($data['session_cookie'])) {
+            return back()->withErrors(['identity' => 'Session Cookie Replay membutuhkan cookie dari dedicated test account yang Anda kontrol.']);
         }
 
         $identity = new SecurityIdentity([
@@ -52,6 +57,7 @@ class AuthenticatedSecurityController extends Controller
         ]);
         $identity->setPassword($data['password'] ?? null);
         $identity->setBearerToken($data['bearer_token'] ?? null);
+        $identity->setSessionCookie($data['session_cookie'] ?? null);
         $identity->save();
 
         return back()->with('success', 'Test identity ditambahkan. Secret disimpan terenkripsi dan tidak pernah ditampilkan kembali.');
