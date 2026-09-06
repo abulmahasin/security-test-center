@@ -20,6 +20,7 @@ class SecurityIdentity extends Model
         'username',
         'password_encrypted',
         'bearer_token_encrypted',
+        'session_cookie_encrypted',
         'success_path',
         'enabled',
     ];
@@ -57,5 +58,15 @@ class SecurityIdentity extends Model
     public function bearerToken(): ?string
     {
         return $this->bearer_token_encrypted ? Crypt::decryptString($this->bearer_token_encrypted) : null;
+    }
+
+    public function setSessionCookie(?string $cookie): void
+    {
+        $this->session_cookie_encrypted = filled($cookie) ? Crypt::encryptString($cookie) : null;
+    }
+
+    public function sessionCookie(): ?string
+    {
+        return $this->session_cookie_encrypted ? Crypt::decryptString($this->session_cookie_encrypted) : null;
     }
 }
