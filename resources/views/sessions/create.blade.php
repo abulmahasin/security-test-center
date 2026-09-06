@@ -50,15 +50,15 @@
         <input type="hidden" name="profile" id="profile-input" value="{{ old('profile', 'balanced') }}">
         <div class="profile-grid">
             <button type="button" class="profile-card" data-profile="quick"><strong>Quick</strong><span>Transport + browser security baseline.</span></button>
-            <button type="button" class="profile-card active" data-profile="balanced"><strong>Balanced</strong><span>Recommended security coverage termasuk sensitive file exposure.</span></button>
-            <button type="button" class="profile-card" data-profile="deep"><strong>Deep Safe</strong><span>Semua modul termasuk controlled resilience.</span></button>
+            <button type="button" class="profile-card active" data-profile="balanced"><strong>Balanced</strong><span>Recommended coverage termasuk sensitive files + authenticated access.</span></button>
+            <button type="button" class="profile-card" data-profile="deep"><strong>Deep Safe</strong><span>Semua modul termasuk authenticated boundaries dan controlled resilience.</span></button>
         </div>
 
         <div class="module-grid" id="module-grid">
             @foreach($moduleOptions as $key => [$title, $description])
                 <label class="module-card">
                     <input type="checkbox" name="modules[]" value="{{ $key }}" data-module="{{ $key }}"
-                        @checked(in_array($key, old('modules', ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files']), true))>
+                        @checked(in_array($key, old('modules', ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files','authenticated_access']), true))>
                     <span><strong>{{ $title }}</strong><small>{{ $description }}</small></span>
                 </label>
             @endforeach
@@ -68,6 +68,12 @@
             <strong>Sensitive File Exposure Scanner</strong>
             <p>Modul ini memeriksa file yang seharusnya tidak dapat dibaca publik, misalnya <code>.env</code>, <code>.git/config</code>, Laravel log, SQLite database, backup SQL/ZIP, <code>.npmrc</code>, Composer <code>auth.json</code>, dan <code>phpinfo.php</code>.</p>
             <p><b>Privasi:</b> scanner hanya membaca sampel kecil untuk mengonfirmasi signature file dan <b>tidak menyimpan isi secret</b> ke database/report. Evidence hanya berisi path, HTTP status, tipe signature, dan status redaction.</p>
+        </div>
+
+        <div class="risk-callout">
+            <strong>Authenticated Access & Privilege Boundaries</strong>
+            <p>Setelah session dibuat, Anda dapat menambahkan akun uji seperti Student, Teacher, Staff, Admin Test, atau Bearer API Client. Credential disimpan terenkripsi.</p>
+            <p>Anda lalu menentukan boundary seperti <code>Student → /admin/users = DENIED</code>. Jika akun student menerima response sukses, report menandainya sebagai <b>Critical Broken Access Control</b>. Pengujian resource hanya menggunakan GET read-only.</p>
         </div>
     </section>
 
@@ -140,8 +146,8 @@
 (() => {
     const presets = {
         quick: ['headers','tls','cookies','cors','security_txt'],
-        balanced: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files'],
-        deep: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files','load_resilience'],
+        balanced: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files','authenticated_access'],
+        deep: ['headers','tls','cookies','cors','exposure','rate_limit','latency','security_txt','http_methods','dns_posture','sensitive_files','authenticated_access','load_resilience'],
     };
 
     const profileInput = document.getElementById('profile-input');
