@@ -24,7 +24,7 @@ class AuthenticatedAccessScanner implements Scanner
                 'info',
                 'Authenticated security belum dikonfigurasi',
                 'Belum ada test identity aktif untuk menguji permission setelah login.',
-                'Tambahkan akun uji dengan role representatif seperti student, teacher, staff, admin, atau API client. Jangan gunakan akun produksi milik user nyata.'
+                'Tambahkan dedicated test account dengan role yang mewakili aplikasi Anda, misalnya standard_user, staff, operator, manager, admin, atau API client. Jangan gunakan akun produksi milik user nyata.'
             )];
         }
 
@@ -60,7 +60,7 @@ class AuthenticatedAccessScanner implements Scanner
                     'info',
                     "Authenticated identity aktif: {$identity->label}",
                     'Login berhasil tetapi belum ada authorization boundary rule untuk identity ini.',
-                    'Tambahkan rule seperti Student → /admin/users = DENIED atau User A → /api/orders/OTHER_ID = DENIED untuk menguji IDOR/BOLA.',
+                    'Tambahkan rule seperti Standard User → /admin/users = DENIED atau User A → /api/orders/OTHER_ID = DENIED untuk menguji IDOR/BOLA.',
                     $this->evidence($identity->label, $identity->expected_role, $authenticated['status'], 'authenticated_no_rules')
                 );
                 continue;
@@ -153,6 +153,8 @@ class AuthenticatedAccessScanner implements Scanner
 
     private function evidence(string $identity, ?string $role, ?int $status, string $result, ?SecurityAccessRule $rule = null): string
     {
+        $isAttackPath = in_array($result, ['unexpectedly_allowed', 'idor_unexpectedly_allowed'], true);
+
         return json_encode([
             'identity' => $identity,
             'expected_role' => $role,
@@ -164,6 +166,21 @@ class AuthenticatedAccessScanner implements Scanner
             'method' => 'GET',
             'credentials_redacted' => true,
             'response_body_stored' => false,
+            'attack_path' => $isAttackPath ? [
+                'entry' => $identity.($role ? ' ('.$role.')' : ''),
+                'target' => $rule?->path,
+                'outcome' => $result === 'idor_unexpectedly_allowed'
+                    ? 'Cross-user / Cross-scope Resource Reached'
+                    : 'Privileged Resource Reached',
+                'severity_hint' => 'critical',
+                'steps' => [
+                    ['state' => 'start', 'label' => 'Dedicated test identity: '.$identity],
+                    ['state' => 'pass', 'label' => 'Authentication completed using encrypted test credential/session'],
+                    ['state' => 'pass', 'label' => 'GET '.$rule?->path.' with valid low-privilege identity'],
+                    ['state' => 'fail', 'label' => $rule?->kind === 'idor' ? 'Expected ownership/object boundary did not deny request' : 'Expected role/permission boundary did not deny request'],
+                    ['state' => 'impact', 'label' => 'HTTP '.($status ?? '?').' — '.$rule?->label],
+                ],
+            ] : null,
         ], JSON_UNESCAPED_SLASHES);
     }
 }
