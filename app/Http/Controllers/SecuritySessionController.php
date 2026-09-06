@@ -12,13 +12,14 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class SecuritySessionController extends Controller
 {
     private const MODULES = [
         'headers', 'tls', 'cookies', 'cors', 'exposure', 'rate_limit', 'latency', 'security_txt',
-        'http_methods', 'dns_posture', 'load_resilience',
+        'http_methods', 'dns_posture', 'sensitive_files', 'load_resilience',
     ];
 
     public function create(): View
@@ -35,6 +36,7 @@ class SecuritySessionController extends Controller
                 'security_txt' => ['Security.txt', 'RFC 9116 disclosure policy dan security contact.'],
                 'http_methods' => ['HTTP Methods', 'Passive OPTIONS review tanpa mengeksekusi method berbahaya.'],
                 'dns_posture' => ['DNS Posture', 'A/AAAA/CNAME resolution baseline secara pasif.'],
+                'sensitive_files' => ['Sensitive File Exposure', 'Memeriksa .env, .git, log, database, backup, credential file, dan phpinfo tanpa menyimpan isi secret.'],
                 'load_resilience' => ['DDoS Resilience Simulation', 'Controlled GET load dengan hard safety caps dan ownership verification.'],
             ],
         ]);
@@ -53,11 +55,16 @@ class SecuritySessionController extends Controller
             'load.rps' => ['nullable', 'integer', 'min:1'],
             'load.duration' => ['nullable', 'integer', 'min:1'],
             'rate_limit_path' => ['nullable', 'string', 'max:255'],
-            'schedule_frequency' => ['nullable', Rule::in(['none', 'daily', 'weekly', 'monthly'])],
+            'monitoring_enabled' => ['nullable', 'boolean'],
+            'monitoring_interval_value' => ['nullable', 'integer', 'min:1', 'max:8760'],
+            'monitoring_interval_unit' => ['nullable', Rule::in(['hours', 'days', 'weeks'])],
         ]);
 
         $targetUrl = rtrim($data['target_url'], '/');
         $guard->assertAllowed($targetUrl);
+
+        $monitoringEnabled = $request->boolean('monitoring_enabled');
+        $intervalMinutes = $monitoringEnabled ? $this->monitoringIntervalMinutes($data) : null;
 
         $session = SecuritySession::create([
             'user_id' => Auth::id(),
@@ -76,11 +83,13 @@ class SecuritySessionController extends Controller
                 ],
                 'rate_limit_path' => '/'.ltrim((string) ($data['rate_limit_path'] ?? '/login'), '/'),
             ],
-            'schedule_frequency' => ($data['schedule_frequency'] ?? 'none') === 'none' ? null : $data['schedule_frequency'],
+            'schedule_frequency' => $monitoringEnabled ? 'custom' : null,
+            'monitoring_enabled' => $monitoringEnabled,
+            'schedule_interval_minutes' => $intervalMinutes,
             'verification_token' => Str::random(48),
         ]);
 
-        return redirect()->route('sessions.show', $session)->with('success', 'Security session dibuat. Verifikasi target sebelum menjalankan audit.');
+        return redirect()->route('sessions.show', $session)->with('success', 'Security session dibuat. Verifikasi target sebelum audit atau monitoring dijalankan.');
     }
 
     public function show(int $session): View
@@ -99,16 +108,53 @@ class SecuritySessionController extends Controller
         $session = $this->ownedSession($session);
 
         if ($verification->verify($session)) {
-            if ($session->schedule_frequency && ! $session->next_run_at) {
-                $session->update(['next_run_at' => $this->nextSchedule($session->schedule_frequency)]);
+            if ($session->monitoring_enabled && $session->schedule_interval_minutes && ! $session->next_run_at) {
+                $session->update(['next_run_at' => now()->addMinutes($session->schedule_interval_minutes)]);
             }
 
-            return back()->with('success', 'Target berhasil diverifikasi. Audit dan continuous monitoring sudah dapat dijalankan.');
+            return back()->with('success', 'Target berhasil diverifikasi. Audit dapat dijalankan dan monitoring aktif hanya jika Anda mengaktifkannya.');
         }
 
         return back()->withErrors([
             'verification' => 'Token verifikasi tidak ditemukan atau tidak sama dengan token sesi.',
         ]);
+    }
+
+    public function updateMonitoring(Request $request, int $session): RedirectResponse
+    {
+        $session = $this->ownedSession($session);
+
+        $data = $request->validate([
+            'monitoring_enabled' => ['nullable', 'boolean'],
+            'monitoring_interval_value' => ['nullable', 'integer', 'min:1', 'max:8760'],
+            'monitoring_interval_unit' => ['nullable', Rule::in(['hours', 'days', 'weeks'])],
+        ]);
+
+        $enabled = $request->boolean('monitoring_enabled');
+
+        if (! $enabled) {
+            $session->update([
+                'monitoring_enabled' => false,
+                'schedule_frequency' => null,
+                'schedule_interval_minutes' => null,
+                'next_run_at' => null,
+            ]);
+
+            return back()->with('success', 'Auto monitoring dimatikan. Session tetap dapat dijalankan manual kapan saja.');
+        }
+
+        abort_unless($session->isVerified(), 422, 'Target harus diverifikasi sebelum auto monitoring diaktifkan.');
+
+        $intervalMinutes = $this->monitoringIntervalMinutes($data);
+
+        $session->update([
+            'monitoring_enabled' => true,
+            'schedule_frequency' => 'custom',
+            'schedule_interval_minutes' => $intervalMinutes,
+            'next_run_at' => now()->addMinutes($intervalMinutes),
+        ]);
+
+        return back()->with('success', 'Auto monitoring aktif: '.$session->fresh()->monitoringLabel().'.');
     }
 
     public function run(int $session): RedirectResponse
@@ -181,7 +227,9 @@ class SecuritySessionController extends Controller
                 'resolved_findings' => $session->resolved_findings_count,
                 'baseline_session_id' => $session->baseline_session_id,
                 'baseline_score' => $session->baseline?->score,
-                'schedule_frequency' => $session->schedule_frequency,
+                'monitoring_enabled' => $session->monitoring_enabled,
+                'monitoring_interval_minutes' => $session->schedule_interval_minutes,
+                'monitoring_label' => $session->monitoringLabel(),
                 'next_run_at' => $session->next_run_at,
                 'modules' => $session->selected_modules,
                 'started_at' => $session->started_at,
@@ -200,9 +248,9 @@ class SecuritySessionController extends Controller
                 'change_type' => $finding->change_type,
                 'severity' => $finding->severity,
                 'title' => $finding->title,
-                'description' => $finding->description,
+                'risk' => $finding->description,
                 'evidence' => $finding->evidence,
-                'remediation' => $finding->remediation,
+                'solution' => $finding->remediation,
                 'status' => $finding->status,
             ])->values(),
         ]);
@@ -213,13 +261,28 @@ class SecuritySessionController extends Controller
         return SecuritySession::query()->where('user_id', Auth::id())->findOrFail($id);
     }
 
-    private function nextSchedule(string $frequency)
+    private function monitoringIntervalMinutes(array $data): int
     {
-        return match ($frequency) {
-            'daily' => now()->addDay(),
-            'weekly' => now()->addWeek(),
-            'monthly' => now()->addMonth(),
-            default => null,
+        if (empty($data['monitoring_interval_value']) || empty($data['monitoring_interval_unit'])) {
+            throw ValidationException::withMessages([
+                'monitoring_interval_value' => 'Tentukan interval auto monitoring terlebih dahulu.',
+            ]);
+        }
+
+        $value = (int) $data['monitoring_interval_value'];
+        $minutes = match ($data['monitoring_interval_unit']) {
+            'hours' => $value * 60,
+            'days' => $value * 1440,
+            'weeks' => $value * 10080,
+            default => 0,
         };
+
+        if ($minutes < 60 || $minutes > 525600) {
+            throw ValidationException::withMessages([
+                'monitoring_interval_value' => 'Interval monitoring minimal 1 jam dan maksimal 1 tahun.',
+            ]);
+        }
+
+        return $minutes;
     }
 }
