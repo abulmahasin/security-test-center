@@ -4,6 +4,7 @@ namespace App\Services\SecurityAudit;
 
 use App\Services\SecurityAudit\Scanners\AccountCompromiseScanner;
 use App\Services\SecurityAudit\Scanners\AuthenticatedAccessScanner;
+use App\Services\SecurityAudit\Scanners\AuthenticationBoundaryScanner;
 use App\Services\SecurityAudit\Scanners\CookieScanner;
 use App\Services\SecurityAudit\Scanners\CorsScanner;
 use App\Services\SecurityAudit\Scanners\DnsPostureScanner;
@@ -35,6 +36,7 @@ class SecurityAuditManager
         private readonly DnsPostureScanner $dnsPosture,
         private readonly SensitiveFilesScanner $sensitiveFiles,
         private readonly AuthenticatedAccessScanner $authenticatedAccess,
+        private readonly AuthenticationBoundaryScanner $authenticationBoundary,
         private readonly AccountCompromiseScanner $accountCompromise,
         private readonly LaravelAgentScanner $laravelAgent,
     ) {
@@ -56,6 +58,7 @@ class SecurityAuditManager
             'dns_posture' => $this->dnsPosture,
             'sensitive_files' => $this->sensitiveFiles,
             'authenticated_access' => $this->authenticatedAccess,
+            'authentication_boundary' => $this->authenticationBoundary,
             'account_compromise' => $this->accountCompromise,
             'laravel_agent' => $this->laravelAgent,
             default => throw new InvalidArgumentException("Unknown security module: {$module}"),
