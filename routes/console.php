@@ -89,6 +89,31 @@ Artisan::command('security:dispatch-scheduled', function (): void {
             ],
         ]);
 
+        $template->loadMissing('identities.accessRules');
+        foreach ($template->identities as $identity) {
+            $runIdentity = $run->identities()->create([
+                'label' => $identity->label,
+                'expected_role' => $identity->expected_role,
+                'auth_type' => $identity->auth_type,
+                'login_path' => $identity->login_path,
+                'username_field' => $identity->username_field,
+                'username' => $identity->username,
+                'password_encrypted' => $identity->password_encrypted,
+                'bearer_token_encrypted' => $identity->bearer_token_encrypted,
+                'success_path' => $identity->success_path,
+                'enabled' => $identity->enabled,
+            ]);
+
+            foreach ($identity->accessRules as $rule) {
+                $runIdentity->accessRules()->create([
+                    'security_session_id' => $run->id,
+                    'label' => $rule->label,
+                    'path' => $rule->path,
+                    'expectation' => $rule->expectation,
+                ]);
+            }
+        }
+
         $template->update([
             'last_scheduled_at' => now(),
             'next_run_at' => now()->addMinutes($interval),
