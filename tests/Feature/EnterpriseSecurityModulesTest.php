@@ -9,10 +9,13 @@ use App\Models\SecurityIdentity;
 use App\Models\SecuritySession;
 use App\Models\User;
 use App\Services\SecurityAudit\AccountSecurityService;
+use App\Services\SecurityAudit\HttpProbe;
 use App\Services\SecurityAudit\Scanners\AccountCompromiseScanner;
+use App\Services\SecurityAudit\Scanners\AuthenticationBoundaryScanner;
 use App\Services\SecurityAudit\Scanners\LaravelAgentScanner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
 
@@ -45,7 +48,7 @@ class EnterpriseSecurityModulesTest extends TestCase
         SecurityAccountTest::create([
             'security_session_id' => $session->id,
             'security_identity_id' => $identity->id,
-            'label' => 'Student Enumeration',
+            'label' => 'Standard User Enumeration',
             'kind' => 'login_enumeration',
             'enabled' => true,
         ]);
@@ -113,13 +116,87 @@ class EnterpriseSecurityModulesTest extends TestCase
         $this->assertStringContainsString('reset_request_sent', (string) $medium['evidence']);
     }
 
+    public function test_guest_without_account_reaching_admin_route_creates_critical_attack_path(): void
+    {
+        [$session] = $this->makeSessionAndIdentity();
+
+        SecurityAgentManifest::create([
+            'security_session_id' => $session->id,
+            'source_label' => 'Application Test',
+            'framework' => 'laravel',
+            'framework_version' => '12.x',
+            'routes_count' => 1,
+            'manifest' => [
+                'security' => ['app_debug' => false, 'session_secure' => true],
+                'routes' => [[
+                    'methods' => ['GET'],
+                    'uri' => 'admin/users',
+                    'name' => 'admin.users.index',
+                    'middleware' => ['web', 'auth', 'role:admin'],
+                ]],
+            ],
+            'received_at' => now(),
+        ]);
+
+        Http::fake(['*' => Http::response('<h1>Admin Users</h1>', 200, ['Content-Type' => 'text/html'])]);
+        $probe = Mockery::mock(HttpProbe::class);
+        $probe->shouldReceive('client')->andReturnUsing(fn () => Http::withHeaders([]));
+
+        $findings = (new AuthenticationBoundaryScanner($probe))->scan($session);
+        $critical = collect($findings)->first(fn (array $finding) => $finding['severity'] === 'critical');
+
+        $this->assertNotNull($critical);
+        $this->assertStringContainsString('Unauthenticated access', $critical['title']);
+        $this->assertStringContainsString('Guest / No Account', (string) $critical['evidence']);
+        $this->assertStringContainsString('attack_path', (string) $critical['evidence']);
+        $this->assertStringContainsString('credential_used', (string) $critical['evidence']);
+    }
+
+    public function test_invalid_bearer_token_accepted_creates_attack_path(): void
+    {
+        [$session] = $this->makeSessionAndIdentity();
+
+        SecurityAgentManifest::create([
+            'security_session_id' => $session->id,
+            'source_label' => 'API Test',
+            'framework' => 'laravel',
+            'framework_version' => '12.x',
+            'routes_count' => 1,
+            'manifest' => [
+                'security' => ['app_debug' => false, 'session_secure' => true],
+                'routes' => [[
+                    'methods' => ['GET'],
+                    'uri' => 'api/profile',
+                    'name' => 'api.profile',
+                    'middleware' => ['api', 'auth:sanctum'],
+                ]],
+            ],
+            'received_at' => now(),
+        ]);
+
+        Http::fakeSequence()
+            ->push('', 401, ['Content-Type' => 'application/json'])
+            ->push('{"user":"test"}', 200, ['Content-Type' => 'application/json']);
+
+        $probe = Mockery::mock(HttpProbe::class);
+        $probe->shouldReceive('client')->andReturnUsing(fn () => Http::withHeaders([]));
+
+        $findings = (new AuthenticationBoundaryScanner($probe))->scan($session);
+        $high = collect($findings)->first(fn (array $finding) => str_contains($finding['title'], 'Invalid token accepted'));
+
+        $this->assertNotNull($high);
+        $this->assertStringContainsString('Synthetic Invalid Token', (string) $high['evidence']);
+        $this->assertStringContainsString('token_guessing', (string) $high['evidence']);
+        $this->assertStringContainsString('attack_path', (string) $high['evidence']);
+    }
+
     public function test_laravel_agent_flags_public_admin_route_as_critical(): void
     {
         [$session] = $this->makeSessionAndIdentity();
 
         SecurityAgentManifest::create([
             'security_session_id' => $session->id,
-            'source_label' => 'LMS Test',
+            'source_label' => 'Application Test',
             'framework' => 'laravel',
             'framework_version' => '12.x',
             'routes_count' => 1,
@@ -152,7 +229,7 @@ class EnterpriseSecurityModulesTest extends TestCase
 
         $manifest = SecurityAgentManifest::create([
             'security_session_id' => $session->id,
-            'source_label' => 'LMS Test',
+            'source_label' => 'Application Test',
             'framework' => 'laravel',
             'framework_version' => '12.x',
             'routes_count' => 3,
@@ -161,7 +238,7 @@ class EnterpriseSecurityModulesTest extends TestCase
                 'routes' => [
                     ['methods' => ['GET'], 'uri' => 'admin/users', 'name' => 'admin.users.index', 'middleware' => ['web', 'auth', 'role:admin']],
                     ['methods' => ['GET'], 'uri' => 'settings/security', 'name' => 'settings.security', 'middleware' => ['web', 'auth']],
-                    ['methods' => ['GET'], 'uri' => 'students/{student}', 'name' => 'students.show', 'middleware' => ['web', 'auth']],
+                    ['methods' => ['GET'], 'uri' => 'resources/{resource}', 'name' => 'resources.show', 'middleware' => ['web', 'auth']],
                 ],
             ],
             'received_at' => now(),
@@ -182,7 +259,7 @@ class EnterpriseSecurityModulesTest extends TestCase
         ]);
         $this->assertDatabaseMissing('security_access_rules', [
             'security_identity_id' => $identity->id,
-            'path' => '/students/{student}',
+            'path' => '/resources/{resource}',
         ]);
     }
 
@@ -210,13 +287,13 @@ class EnterpriseSecurityModulesTest extends TestCase
 
         $identity = new SecurityIdentity([
             'security_session_id' => $session->id,
-            'label' => 'Student Test',
-            'expected_role' => 'student',
+            'label' => 'Low Privilege Test User',
+            'expected_role' => 'standard_user',
             'auth_type' => 'form',
             'login_path' => '/login',
             'username_field' => 'email',
             'password_field' => 'password',
-            'username' => 'student@example.test',
+            'username' => 'security-test@example.test',
             'success_path' => '/dashboard',
             'enabled' => true,
         ]);
