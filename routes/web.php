@@ -37,6 +37,7 @@ Route::middleware('auth')->group(function (): void {
     Route::delete('/account-tests/{test}', [AccountSecurityController::class, 'destroy'])->name('account-tests.destroy');
 
     Route::post('/sessions/{session}/laravel-agent-manifests', [LaravelAgentController::class, 'store'])->name('sessions.agent-manifests.store');
+    Route::post('/sessions/{session}/laravel-agent-manifests/{manifest}/generate-rules', [LaravelAgentController::class, 'generateRules'])->name('sessions.agent-manifests.generate-rules');
     Route::delete('/laravel-agent-manifests/{manifest}', [LaravelAgentController::class, 'destroy'])->name('agent-manifests.destroy');
 
     Route::patch('/findings/{finding}/status', [SecurityFindingController::class, 'updateStatus'])->name('findings.status');
