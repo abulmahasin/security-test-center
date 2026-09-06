@@ -63,23 +63,78 @@
 <section class="panel auth-security-panel">
     <div class="panel-head">
         <div>
-            <p class="eyebrow">Authenticated Security</p>
-            <h2>Test Identity Vault & Privilege Boundaries</h2>
-            <p class="muted">Gunakan akun/session uji yang Anda kontrol. Secret disimpan terenkripsi, tidak pernah ditampilkan kembali, dan tidak masuk report/log. Resource checks hanya GET read-only.</p>
+            <p class="eyebrow">Authentication & Authorization Security</p>
+            <h2>Guest Boundaries, Test Identities & Privilege Paths</h2>
+            <p class="muted">Uji aplikasi dari kondisi tanpa akun maupun setelah login memakai dedicated test identity. Secret disimpan terenkripsi dan resource checks hanya GET read-only.</p>
         </div>
-        <span class="pill">{{ $session->identities->count() }} identities · {{ $session->accessRules->count() }} rules</span>
+        <span class="pill">{{ $session->guestBoundaries->count() }} guest routes · {{ $session->identities->count() }} identities · {{ $session->accessRules->count() }} rules</span>
     </div>
 
-    @if(!in_array('authenticated_access', $session->selected_modules ?? [], true))
+    @if(!in_array('authenticated_access', $session->selected_modules ?? [], true) && !in_array('laravel_agent', $session->selected_modules ?? [], true))
         <div class="risk-callout">
-            <strong>Module belum aktif pada session ini</strong>
-            <p>Identity dan rules dapat tetap disiapkan, tetapi scanner tidak akan menjalankannya sampai module <code>authenticated_access</code> dipilih pada assessment yang mendukungnya.</p>
+            <strong>Authentication replay belum aktif pada module session ini</strong>
+            <p>Aktifkan Authenticated Access atau Laravel Agent pada assessment agar Guest / No Account replay dijalankan otomatis.</p>
         </div>
     @endif
 
     <div class="secret-warning guest-replay-note">
-        <strong>Guest / No Account Replay is automatic</strong>
-        <p>Jika Laravel Agent atau access-control inventory tersedia, audit otomatis mencoba protected route tanpa credential/session/token. Untuk API token routes, scanner juga mencoba satu bearer token sintetis yang sengaja invalid. Tidak ada auth bypass payload, token forging, credential guessing, atau mutation request.</p>
+        <strong>Guest / No Account Replay</strong>
+        <p>Audit mengirim GET tanpa credential/session/token ke route yang Anda tandai protected. Untuk bearer route, scanner juga menguji satu token sintetis yang sengaja invalid. Tidak ada auth-bypass payload, token forging, credential guessing, brute force, atau mutation request.</p>
+    </div>
+
+    <div class="auth-config-grid guest-boundary-grid">
+        <div class="auth-config-card">
+            <h3>Guest / No Account Protected Route</h3>
+            <p class="muted">Ini dapat dipakai untuk Laravel maupun aplikasi framework lain. Masukkan route yang menurut desain harus membutuhkan login/token.</p>
+            <form method="POST" action="{{ route('sessions.guest-boundaries.store', $session) }}" class="auth-form">
+                @csrf
+                <div class="form-grid two">
+                    <label><span>Boundary Label</span><input name="label" placeholder="Admin Dashboard" required></label>
+                    <label>
+                        <span>Expected Authentication</span>
+                        <select name="auth_mode">
+                            <option value="session">Session / Login Required</option>
+                            <option value="bearer">Bearer Token Required</option>
+                        </select>
+                    </label>
+                </div>
+                <label class="field-block">
+                    <span>Protected Resource Path</span>
+                    <input name="path" placeholder="/admin atau /api/profile" required>
+                    <small>Static GET path saja. Gunakan object-level IDOR rules untuk resource berparameter/dinamis.</small>
+                </label>
+                <label class="field-block">
+                    <span>Business Context</span>
+                    <textarea name="business_context" rows="2" placeholder="Contoh: hanya administrator yang boleh melihat dashboard ini."></textarea>
+                </label>
+                <button class="btn btn-secondary" type="submit">Add Guest Boundary</button>
+            </form>
+        </div>
+
+        <div class="auth-config-card">
+            <h3>Protected Route Inventory</h3>
+            <p class="muted">Route di bawah akan direplay dari perspektif Guest. Laravel Agent dapat menambahkan candidate protected routes secara otomatis saat audit.</p>
+            <div class="boundary-list guest-boundary-list">
+                @forelse($session->guestBoundaries as $boundary)
+                    <div class="boundary-row">
+                        <div>
+                            <span class="change new">DENIED</span>
+                            <span class="pill">{{ $boundary->auth_mode === 'bearer' ? 'TOKEN' : 'SESSION' }}</span>
+                            <strong>{{ $boundary->label }}</strong>
+                            <code>GET {{ $boundary->path }}</code>
+                            @if($boundary->business_context)<small>{{ $boundary->business_context }}</small>@endif
+                        </div>
+                        <form method="POST" action="{{ route('guest-boundaries.destroy', $boundary) }}">
+                            @csrf
+                            @method('DELETE')
+                            <button class="btn btn-ghost btn-small" type="submit">Remove</button>
+                        </form>
+                    </div>
+                @empty
+                    <div class="empty">Belum ada protected route manual. Laravel Agent tetap dapat menyediakan inventory otomatis.</div>
+                @endforelse
+            </div>
+        </div>
     </div>
 
     <div class="auth-config-grid">
