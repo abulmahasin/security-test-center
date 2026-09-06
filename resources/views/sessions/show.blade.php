@@ -83,6 +83,8 @@
 </section>
 
 @include('sessions._authenticated-security')
+@include('sessions._account-security')
+@include('sessions._laravel-agent')
 
 <section class="run-grid">
     <article class="panel progress-panel">
@@ -133,7 +135,7 @@
 
 <section class="panel">
     <div class="panel-head">
-        <div><p class="eyebrow">Continuous Posture Report</p><h2>Risk, Evidence & Solution</h2><p class="muted">Setiap finding menjelaskan dampak praktis dan solusi. Untuk sensitive-file/authenticated scan, secret dan response body tidak pernah disimpan di report.</p></div>
+        <div><p class="eyebrow">Continuous Posture Report</p><h2>Risk, Evidence & Solution</h2><p class="muted">Setiap finding menjelaskan dampak praktis dan solusi. Untuk sensitive-file/authenticated/account-security scan, secret dan response body tidak pernah disimpan di report.</p></div>
         <a class="btn btn-secondary" href="{{ route('sessions.report', $session) }}">Export JSON</a>
     </div>
 
