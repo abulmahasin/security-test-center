@@ -3,7 +3,7 @@
         <div>
             <p class="eyebrow">Authenticated Security</p>
             <h2>Test Identity Vault & Privilege Boundaries</h2>
-            <p class="muted">Gunakan akun uji yang Anda kontrol. Credential disimpan terenkripsi, tidak pernah ditampilkan kembali, dan tidak masuk report/log. Resource checks hanya GET read-only.</p>
+            <p class="muted">Gunakan akun/session uji yang Anda kontrol. Secret disimpan terenkripsi, tidak pernah ditampilkan kembali, dan tidak masuk report/log. Resource checks hanya GET read-only.</p>
         </div>
         <span class="pill">{{ $session->identities->count() }} identities · {{ $session->accessRules->count() }} rules</span>
     </div>
@@ -18,7 +18,7 @@
     <div class="auth-config-grid">
         <div class="auth-config-card">
             <h3>1. Add Test Identity</h3>
-            <p class="muted">Contoh: Student Test, Teacher Test, Admin Test, atau API Client Test. Gunakan akun khusus testing, bukan akun user produksi nyata.</p>
+            <p class="muted">Gunakan akun khusus testing. Session Cookie Replay hanya menerima cookie yang Anda paste dari dedicated test account; sistem tidak mencoba mencuri cookie dari browser atau target.</p>
             <form method="POST" action="{{ route('sessions.identities.store', $session) }}" class="auth-form">
                 @csrf
                 <div class="form-grid two">
@@ -31,6 +31,7 @@
                         <select name="auth_type" id="auth-type-select">
                             <option value="form">Form Login</option>
                             <option value="bearer">Bearer Token</option>
+                            <option value="cookie">Provided Test Session Cookie</option>
                         </select>
                     </label>
                     <label><span>Success / Verification Path</span><input name="success_path" value="/" placeholder="/dashboard"></label>
@@ -49,9 +50,13 @@
                 <div id="bearer-auth-fields" class="disabled-box">
                     <label class="field-block"><span>Bearer Token</span><input type="password" name="bearer_token" autocomplete="new-password" placeholder="Test API token"></label>
                 </div>
+                <div id="cookie-auth-fields" class="disabled-box">
+                    <label class="field-block"><span>Test Session Cookie Header</span><input type="password" name="session_cookie" autocomplete="new-password" placeholder="laravel_session=...; XSRF-TOKEN=..."></label>
+                    <small>Paste hanya cookie dari dedicated test account yang Anda kontrol. Cookie dienkripsi at-rest dan tidak pernah ditampilkan lagi.</small>
+                </div>
                 <div class="secret-warning">
                     <strong>Credential handling</strong>
-                    <p>Password/token dienkripsi dengan Laravel Crypt. UI tidak menyediakan fitur reveal secret, report selalu menandai <code>credentials_redacted=true</code>.</p>
+                    <p>Password/token/session cookie dienkripsi dengan Laravel Crypt. UI tidak menyediakan reveal secret dan report selalu menandai <code>credentials_redacted=true</code>.</p>
                 </div>
                 <button class="btn btn-secondary" type="submit">Add Encrypted Test Identity</button>
             </form>
@@ -98,7 +103,7 @@
                     </label>
                     <div class="secret-warning">
                         <strong>How this proves a weakness</strong>
-                        <p>Rule DENIED yang menerima HTTP 2xx setelah login menjadi finding <b>CRITICAL</b>. Authorization menandakan role boundary jebol; IDOR/BOLA menandakan object milik user/tenant lain bisa dibaca. Hanya GET read-only yang digunakan—tidak membuat, mengubah, atau menghapus data.</p>
+                        <p>Rule DENIED yang menerima HTTP 2xx setelah login menjadi finding <b>CRITICAL</b>. Authorization menandakan role boundary jebol; IDOR/BOLA menandakan object milik user/tenant lain bisa dibaca. Hanya GET read-only yang digunakan.</p>
                     </div>
                     <button class="btn btn-secondary" type="submit">Add Security Boundary</button>
                 </form>
@@ -113,7 +118,7 @@
                 <div class="identity-head">
                     <div>
                         <strong>{{ $identity->label }}</strong>
-                        <span>{{ $identity->expected_role ?: 'Role not specified' }} · {{ strtoupper($identity->auth_type) }} · credential encrypted</span>
+                        <span>{{ $identity->expected_role ?: 'Role not specified' }} · {{ strtoupper($identity->auth_type) }} · secret encrypted</span>
                     </div>
                     <form method="POST" action="{{ route('identities.destroy', $identity) }}" onsubmit="return confirm('Delete this test identity and its boundary rules?')">
                         @csrf
@@ -153,12 +158,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const select = document.getElementById('auth-type-select');
     const formFields = document.getElementById('form-auth-fields');
     const bearerFields = document.getElementById('bearer-auth-fields');
-    if (!select || !formFields || !bearerFields) return;
+    const cookieFields = document.getElementById('cookie-auth-fields');
+    if (!select || !formFields || !bearerFields || !cookieFields) return;
 
     const sync = () => {
-        const bearer = select.value === 'bearer';
-        formFields.classList.toggle('disabled-box', bearer);
-        bearerFields.classList.toggle('disabled-box', !bearer);
+        const type = select.value;
+        formFields.classList.toggle('disabled-box', type !== 'form');
+        bearerFields.classList.toggle('disabled-box', type !== 'bearer');
+        cookieFields.classList.toggle('disabled-box', type !== 'cookie');
     };
 
     select.addEventListener('change', sync);
