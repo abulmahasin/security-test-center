@@ -19,7 +19,8 @@ class SecuritySessionController extends Controller
 {
     private const MODULES = [
         'headers', 'tls', 'cookies', 'cors', 'exposure', 'rate_limit', 'latency', 'security_txt',
-        'http_methods', 'dns_posture', 'sensitive_files', 'authenticated_access', 'load_resilience',
+        'http_methods', 'dns_posture', 'sensitive_files', 'authenticated_access', 'account_compromise',
+        'laravel_agent', 'load_resilience',
     ];
 
     public function create(): View
@@ -38,6 +39,8 @@ class SecuritySessionController extends Controller
                 'dns_posture' => ['DNS Posture', 'A/AAAA/CNAME resolution baseline secara pasif.'],
                 'sensitive_files' => ['Sensitive File Exposure', 'Memeriksa .env, .git, log, database, backup, credential file, dan phpinfo tanpa menyimpan isi secret.'],
                 'authenticated_access' => ['Authenticated Access & Privilege Boundaries', 'Login memakai akun uji terenkripsi lalu validasi apakah role rendah dapat membaca resource admin/role lain. Read-only GET only.'],
+                'account_compromise' => ['Account Compromise Defense', 'Bounded account-enumeration dan login-throttling checks dengan dedicated test account. Tanpa brute force/password guessing.'],
+                'laravel_agent' => ['Laravel Agent Manifest', 'Source-assisted route/middleware/config inventory untuk menemukan admin/public, mutating/public, dan posture Laravel yang berisiko.'],
                 'load_resilience' => ['DDoS Resilience Simulation', 'Controlled GET load dengan hard safety caps dan ownership verification.'],
             ],
         ]);
@@ -99,6 +102,8 @@ class SecuritySessionController extends Controller
             'baseline',
             'findings',
             'identities.accessRules',
+            'accountTests.identity',
+            'agentManifests' => fn ($query) => $query->latest('received_at')->limit(5),
             'logs' => fn ($query) => $query->limit(80),
         ]);
 
@@ -212,7 +217,13 @@ class SecuritySessionController extends Controller
 
     public function report(int $session): JsonResponse
     {
-        $session = $this->ownedSession($session)->load(['findings', 'baseline', 'identities.accessRules']);
+        $session = $this->ownedSession($session)->load([
+            'findings',
+            'baseline',
+            'identities.accessRules',
+            'accountTests.identity',
+            'agentManifests' => fn ($query) => $query->latest('received_at')->limit(1),
+        ]);
 
         return response()->json([
             'session' => [
@@ -240,6 +251,7 @@ class SecuritySessionController extends Controller
             'authenticated_security' => [
                 'identity_count' => $session->identities->count(),
                 'rule_count' => $session->identities->sum(fn ($identity) => $identity->accessRules->count()),
+                'account_test_count' => $session->accountTests->count(),
                 'identities' => $session->identities->map(fn ($identity) => [
                     'label' => $identity->label,
                     'expected_role' => $identity->expected_role,
@@ -250,9 +262,27 @@ class SecuritySessionController extends Controller
                         'label' => $rule->label,
                         'path' => $rule->path,
                         'expectation' => $rule->expectation,
+                        'kind' => $rule->kind,
+                        'business_context' => $rule->business_context,
                         'method' => 'GET',
                     ])->values(),
                 ])->values(),
+                'account_tests' => $session->accountTests->map(fn ($test) => [
+                    'label' => $test->label,
+                    'kind' => $test->kind,
+                    'identity' => $test->identity?->label,
+                    'hard_bounded' => true,
+                    'password_guessing' => false,
+                ])->values(),
+            ],
+            'laravel_agent' => [
+                'manifest_available' => $session->agentManifests->isNotEmpty(),
+                'latest' => $session->agentManifests->first() ? [
+                    'source_label' => $session->agentManifests->first()->source_label,
+                    'framework_version' => $session->agentManifests->first()->framework_version,
+                    'routes_count' => $session->agentManifests->first()->routes_count,
+                    'received_at' => $session->agentManifests->first()->received_at,
+                ] : null,
             ],
             'summary' => [
                 'critical' => $session->findings->where('severity', 'critical')->count(),
