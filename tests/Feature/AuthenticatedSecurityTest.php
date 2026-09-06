@@ -12,6 +12,7 @@ use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Mockery;
 use Tests\TestCase;
 
@@ -31,6 +32,7 @@ class AuthenticatedSecurityTest extends TestCase
             'auth_type' => 'form',
             'login_path' => '/login',
             'username_field' => 'email',
+            'password_field' => 'password',
             'username' => 'student@example.test',
             'success_path' => '/dashboard',
             'enabled' => true,
@@ -54,6 +56,7 @@ class AuthenticatedSecurityTest extends TestCase
             'auth_type' => 'form',
             'login_path' => '/login',
             'username_field' => 'email',
+            'password_field' => 'password',
             'username' => 'student@example.test',
             'success_path' => '/dashboard',
             'enabled' => true,
@@ -70,7 +73,7 @@ class AuthenticatedSecurityTest extends TestCase
         ]);
 
         $auth = Mockery::mock(AuthenticatedSessionService::class);
-        $client = new \stdClass();
+        $client = Http::withOptions(['allow_redirects' => false]);
         $auth->shouldReceive('authenticate')->once()->andReturn([
             'client' => $client,
             'authenticated' => true,
