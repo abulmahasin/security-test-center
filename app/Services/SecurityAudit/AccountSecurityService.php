@@ -46,6 +46,35 @@ class AccountSecurityService
         ];
     }
 
+    public function inspectSurface(SecuritySession $session, string $path): array
+    {
+        $url = $this->url($session, $path);
+        $jar = new CookieJar();
+        $response = $this->client($url, $jar)->get($url);
+        $sample = substr($response->body(), 0, 500000);
+        $lower = strtolower($sample);
+
+        preg_match_all('/<form\b/i', $sample, $forms);
+        preg_match_all('/autocomplete=["\']([^"\']+)["\']/i', $sample, $autocompleteMatches);
+
+        return [
+            'status' => $response->status(),
+            'length' => strlen($response->body()),
+            'location' => $this->redactLocation($response->header('Location')),
+            'csrf_present' => $this->extractCsrfToken($sample) !== null,
+            'password_input_present' => preg_match('/<input[^>]*type=["\']password["\']/i', $sample) === 1,
+            'email_or_username_input_present' => str_contains($lower, 'type="email"')
+                || str_contains($lower, "type='email'")
+                || preg_match('/<input[^>]*name=["\'](?:email|username|login)["\']/i', $sample) === 1,
+            'form_count' => count($forms[0] ?? []),
+            'autocomplete_values' => array_values(array_unique(array_map(
+                fn ($value) => mb_substr(strtolower((string) $value), 0, 40),
+                $autocompleteMatches[1] ?? []
+            ))),
+            'response_body_stored' => false,
+        ];
+    }
+
     public function syntheticUsername(SecurityIdentity $identity): string
     {
         $username = (string) $identity->username;
