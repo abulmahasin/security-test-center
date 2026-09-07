@@ -186,7 +186,6 @@
             </div>
         </article>
     </section>
-@endif
 
 @if($session->status === 'completed')
     @php

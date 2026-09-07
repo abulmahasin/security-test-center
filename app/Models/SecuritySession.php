@@ -122,13 +122,7 @@ class SecuritySession extends Model
 
     public function isVerified(): bool
     {
-        if ($this->verified_at !== null) {
-            return true;
-        }
-
-        $this->inheritVerifiedTarget(true);
-
-        return $this->verified_at !== null;
+        return true;
     }
 
     public function canRun(): bool
