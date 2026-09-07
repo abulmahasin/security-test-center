@@ -173,7 +173,7 @@ class SecuritySession extends Model
             ->where('user_id', $this->user_id)
             ->where('target_url', rtrim($this->target_url, '/'))
             ->whereNotNull('verified_at')
-            ->when($this->exists, fn ($query) => $query->whereKeyNot($this->getKey()))
+            ->when($this->exists, fn ($query) => $query->where($this->getKeyName(), '!=', $this->getKey()))
             ->latest('verified_at')
             ->first(['verification_token', 'verified_at']);
 
