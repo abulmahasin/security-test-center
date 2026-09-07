@@ -33,7 +33,7 @@ return new class extends Migration
             $table->string('expectation', 24)->default('denied');
             $table->timestamps();
 
-            $table->index(['security_session_id', 'security_identity_id']);
+            $table->index(['security_session_id', 'security_identity_id'], 'sec_rules_sess_id_idx');
         });
     }
 
