@@ -32,5 +32,8 @@ jobs:
       - name: PHP syntax check
         run: find app config routes database tests -name '*.php' -print0 | xargs -0 -n1 php -l
 
+      - name: Compile Blade views
+        run: php artisan view:cache
+
       - name: Run tests
         run: php artisan test
