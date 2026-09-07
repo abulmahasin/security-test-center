@@ -67,30 +67,7 @@
     </div>
 </section>
 
-@if(!$session->verified_at)
-    <section class="panel verification-panel">
-        <div class="panel-head">
-            <div>
-                <p class="eyebrow">Ownership Verification</p>
-                <h2>Verifikasi target sebelum audit</h2>
-                <p class="muted">Proof-of-control wajib sebelum active audit maupun auto monitoring. Ini mencegah scanner digunakan pada sistem yang tidak Anda kuasai.</p>
-            </div>
-        </div>
-
-        <div class="verification-steps">
-            <div><span>1</span><p>Buat file berikut pada aplikasi target:</p></div>
-            <code>{{ rtrim($session->target_url, '/') }}{{ config('security_test.verification_path') }}</code>
-            <div><span>2</span><p>Isi file harus persis satu baris berikut:</p></div>
-            <code>{{ $session->verification_token }}</code>
-        </div>
-
-        <form method="POST" action="{{ route('sessions.verify', $session) }}">
-            @csrf
-            <button class="btn btn-primary" type="submit">Verify Target Now</button>
-        </form>
-    </section>
-@else
-    <section class="panel monitoring-panel">
+<div class="monitoring-panel">
         <div class="panel-head">
             <div>
                 <p class="eyebrow">User Controlled Automation</p>

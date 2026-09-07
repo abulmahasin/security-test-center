@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Jobs\RunSecurityAudit;
 use App\Models\SecuritySession;
 use App\Services\SecurityAudit\TargetGuard;
-use App\Services\SecurityAudit\VerificationService;
+
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -93,7 +93,7 @@ class SecuritySessionController extends Controller
             'verification_token' => Str::random(48),
         ]);
 
-        return redirect()->route('sessions.show', $session)->with('success', 'Security session dibuat. Verifikasi target sebelum audit atau monitoring dijalankan.');
+        return redirect()->route('sessions.show', $session)->with('success', 'Security session dibuat.');
     }
 
     public function show(int $session): View
@@ -108,23 +108,6 @@ class SecuritySessionController extends Controller
         ]);
 
         return view('sessions.show', compact('session'));
-    }
-
-    public function verify(int $session, VerificationService $verification): RedirectResponse
-    {
-        $session = $this->ownedSession($session);
-
-        if ($verification->verify($session)) {
-            if ($session->monitoring_enabled && $session->schedule_interval_minutes && ! $session->next_run_at) {
-                $session->update(['next_run_at' => now()->addMinutes($session->schedule_interval_minutes)]);
-            }
-
-            return back()->with('success', 'Target berhasil diverifikasi. Audit dapat dijalankan dan monitoring aktif hanya jika Anda mengaktifkannya.');
-        }
-
-        return back()->withErrors([
-            'verification' => 'Token verifikasi tidak ditemukan atau tidak sama dengan token sesi.',
-        ]);
     }
 
     public function updateMonitoring(Request $request, int $session): RedirectResponse
