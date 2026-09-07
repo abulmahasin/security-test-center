@@ -42,6 +42,17 @@ class SecuritySession extends Model
         'metadata',
     ];
 
+    protected static function booted(): void
+    {
+        static::creating(function (SecuritySession $session): void {
+            $session->inheritVerifiedTarget();
+        });
+
+        static::retrieved(function (SecuritySession $session): void {
+            $session->inheritVerifiedTarget(true);
+        });
+    }
+
     protected function casts(): array
     {
         return [
@@ -111,6 +122,12 @@ class SecuritySession extends Model
 
     public function isVerified(): bool
     {
+        if ($this->verified_at !== null) {
+            return true;
+        }
+
+        $this->inheritVerifiedTarget(true);
+
         return $this->verified_at !== null;
     }
 
@@ -143,5 +160,32 @@ class SecuritySession extends Model
         }
 
         return 'Every '.($minutes / 60).' hour(s)';
+    }
+
+    private function inheritVerifiedTarget(bool $persist = false): void
+    {
+        if ($this->verified_at !== null || ! $this->user_id || ! $this->target_url) {
+            return;
+        }
+
+        $verified = static::query()
+            ->withoutGlobalScopes()
+            ->where('user_id', $this->user_id)
+            ->where('target_url', rtrim($this->target_url, '/'))
+            ->whereNotNull('verified_at')
+            ->when($this->exists, fn ($query) => $query->whereKeyNot($this->getKey()))
+            ->latest('verified_at')
+            ->first(['verification_token', 'verified_at']);
+
+        if (! $verified) {
+            return;
+        }
+
+        $this->verification_token = $verified->verification_token;
+        $this->verified_at = $verified->verified_at;
+
+        if ($persist && $this->exists && $this->isDirty(['verification_token', 'verified_at'])) {
+            $this->saveQuietly();
+        }
     }
 }
